@@ -224,6 +224,6 @@ printf("{}\n", pixels[0]);
 
 ## License
 
-This project is licensed under the MIT License. See `LICENSE` for details.
+This project is licensed under the GNU GPL v3 License. See `LICENSE` for details.
 
 ---
