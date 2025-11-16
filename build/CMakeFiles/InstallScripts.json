@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/data/Code/c/Lumin/build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
