@@ -1,0 +1,1 @@
+/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/lumin.dir/link.d CMakeFiles/lumin.dir/src/exec/executils.cpp.o CMakeFiles/lumin.dir/src/exec/executor.cpp.o CMakeFiles/lumin.dir/src/lumper/lumper.cpp.o CMakeFiles/lumin.dir/src/main.cpp.o CMakeFiles/lumin.dir/src/reader/lexer.cpp.o CMakeFiles/lumin.dir/src/reader/parser.cpp.o -o lumin  /usr/lib/libz.so

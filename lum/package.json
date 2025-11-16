@@ -1,0 +1,25 @@
+{
+  "name": "lum",
+  "displayName": "lum",
+  "description": "Lumin language",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "lum",
+      "aliases": ["Lumin", "lum"],
+      "extensions": [".lum"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "lum",
+      "scopeName": "source.lum",
+      "path": "./syntaxes/lum.tmLanguage.json"
+    }]
+  }
+}

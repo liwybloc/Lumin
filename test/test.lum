@@ -1,0 +1,15 @@
+struct Bar {
+    int y;
+    string v;
+};
+
+fin factorial(n) -> int {
+    if(n<=1) return 1;
+    return n * factorial(n-1);
+}
+
+fin main() -> nil {
+    Bar x = { 5, "YO" };
+    x.y += 5;
+    printf("Bro {} {}\n", factorial(x.y), x.v);
+}

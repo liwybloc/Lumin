@@ -1,0 +1,60 @@
+{
+  "scopeName": "source.lum",
+  "patterns": [
+    {
+      "name": "comment.line.double-slash.lum",
+      "match": "//.*$"
+    },
+    {
+      "name": "keyword.control.lum",
+      "match": "\\b(fin|return|if|else|for|while|->|nil)\\b"
+    },
+    {
+      "begin": "\\bstruct\\b",
+      "beginCaptures": {
+        "0": { "name": "storage.type.lum" }
+      },
+      "end": "([A-Za-z_][A-Za-z0-9_]*)",
+      "endCaptures": {
+        "1": { "name": "entity.name.type.struct.lum" }
+      },
+      "name": "meta.struct.lum"
+    },
+    {
+      "name": "storage.type.lum",
+      "match": "\\b(int|float|bool|string|struct)(\\[\\])?\\b"
+    },
+    {
+      "name": "entity.name.type.struct.lum",
+      "match": "\\b(?!int|float|bool|char|struct)[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*)"
+    },
+    {
+      "name": "support.function.builtin.lum",
+      "match": "\\b(print|println|printf)\\b"
+    },
+    {
+      "name": "constant.numeric.lum",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    },
+    {
+      "name": "keyword.operator.lum",
+      "match": "[=+\\-*/]|\\.\\."
+    },
+    {
+      "name": "variable.language.lum",
+      "match": "@"
+    },
+    {
+      "name": "string.quoted.double.lum",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "match": "\\\\.", "name": "constant.character.escape.lum" }
+      ]
+    },
+    {
+      "name": "entity.name.function.lum",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+    }
+  ]
+}

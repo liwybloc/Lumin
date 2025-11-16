@@ -1,0 +1,3 @@
+/data/Code/c/Lumin/build/CMakeFiles/lumin.dir
+/data/Code/c/Lumin/build/CMakeFiles/edit_cache.dir
+/data/Code/c/Lumin/build/CMakeFiles/rebuild_cache.dir
