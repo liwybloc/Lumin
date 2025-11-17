@@ -10,10 +10,6 @@ file(GLOB_RECURSE SOURCES
     src/*.cpp
 )
 
-find_package(ZLIB REQUIRED)
-
 add_executable(lumin ${SOURCES})
-message(STATUS "Sources: ${SOURCES}")
 
-target_include_directories(lumin PRIVATE ${ZLIB_INCLUDE_DIRS})
-target_link_libraries(lumin PRIVATE ${ZLIB_LIBRARIES})
+target_link_libraries(lumin PRIVATE zstd)

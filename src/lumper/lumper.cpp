@@ -8,8 +8,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <functional>
-#include <zconf.h>
-#include <zlib.h>
+#include <zstd.h>
 
 constexpr char LUMP_MAGIC[4] = {'L','U','M','P'};
 constexpr uint8_t LUMP_VERSION = 4;
@@ -260,13 +259,22 @@ void Lumper::lump(std::string &loc) {
     for (const auto &c : ast->children) encodeNode(c, uncompressed, ctx);
 
     std::string inData = uncompressed.str();
-    uLongf compressedSize = compressBound(inData.size());
-    std::vector<unsigned char> outBuffer(compressedSize);
+    size_t inSize = inData.size();
 
-    if (compress(outBuffer.data(), &compressedSize,
-                 reinterpret_cast<const Bytef*>(inData.data()),
-                 inData.size()) != Z_OK) {
-        throw std::runtime_error("Compression failed");
+    size_t maxCompressedSize = ZSTD_compressBound(inSize);
+    std::vector<char> outBuffer(maxCompressedSize);
+
+    int compressionLevel = 3;
+    size_t compressedSize = ZSTD_compress(
+        outBuffer.data(),
+        maxCompressedSize,
+        inData.data(),
+        inSize,
+        compressionLevel
+    );
+
+    if (ZSTD_isError(compressedSize)) {
+        throw std::runtime_error(std::string("ZSTD compression failed: ") + ZSTD_getErrorName(compressedSize));
     }
 
     std::ofstream out(loc, std::ios::binary);
@@ -275,10 +283,13 @@ void Lumper::lump(std::string &loc) {
     out.write(LUMP_MAGIC, 4);
     writeByte(out, LUMP_VERSION);
 
-    uint64_t origSize = inData.size();
+    uint64_t origSize = inSize;
     out.write(reinterpret_cast<char*>(&origSize), sizeof(origSize));
 
-    out.write(reinterpret_cast<char*>(outBuffer.data()), compressedSize);
+    uint64_t csize64 = compressedSize;
+    out.write(reinterpret_cast<char*>(&csize64), sizeof(csize64));
+
+    out.write(outBuffer.data(), compressedSize);
 }
 
 std::shared_ptr<ASTNode> Lumper::unlump(const std::string &loc) {
@@ -294,24 +305,28 @@ std::shared_ptr<ASTNode> Lumper::unlump(const std::string &loc) {
     if (version != LUMP_VERSION)
         throw std::runtime_error("Unsupported LUMP version");
 
-    unsigned long decompressedSize;
+    uint64_t decompressedSize;
     in.read(reinterpret_cast<char*>(&decompressedSize), sizeof(decompressedSize));
 
-    in.seekg(0, std::ios::end);
-    size_t fileSize = in.tellg();
-    size_t compressedSize = fileSize - (4 + 1 + sizeof(decompressedSize));
-    in.seekg(4 + 1 + sizeof(decompressedSize), std::ios::beg);
+    uint64_t compressedSize;
+    in.read(reinterpret_cast<char*>(&compressedSize), sizeof(compressedSize));
 
-    std::vector<unsigned char> compressed(compressedSize);
-    in.read(reinterpret_cast<char*>(compressed.data()), compressedSize);
+    std::vector<char> compressedBuf(compressedSize);
+    in.read(compressedBuf.data(), compressedSize);
 
-    std::vector<unsigned char> decompressed(decompressedSize);
-    if (uncompress(decompressed.data(), &decompressedSize,
-                   compressed.data(), compressedSize) != Z_OK) {
-        throw std::runtime_error("Decompression failed");
+    std::vector<char> decompressedBuf(decompressedSize);
+    size_t dSize = ZSTD_decompress(
+        decompressedBuf.data(),
+        decompressedSize,
+        compressedBuf.data(),
+        compressedSize
+    );
+
+    if (ZSTD_isError(dSize)) {
+        throw std::runtime_error(std::string("ZSTD decompression failed: ") + ZSTD_getErrorName(dSize));
     }
 
-    std::istringstream iss(std::string(reinterpret_cast<char*>(decompressed.data()), decompressedSize));
+    std::istringstream iss(std::string(decompressedBuf.data(), dSize));
 
     LumpContext ctx;
     ctx.readTable(iss);

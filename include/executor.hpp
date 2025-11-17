@@ -13,6 +13,7 @@
 #include <optional>
 #include <vector>
 #include <any>
+#include <algorithm>
 
 struct Function;
 struct Struct;

@@ -2,7 +2,7 @@ import "outstream";
 import "filestream";
 
 fin main() -> nil {
-    File file = fopen("../test/test.lum", "r");
+    File file = fopen("./test/test.lum", "r");
 
     string data = fread(file);
 
