@@ -29,6 +29,7 @@ const std::unordered_map<std::string, Token::Type> keywords = {
     {"while", Token::Type::KEYWORD}, {"return", Token::Type::KEYWORD},
     {"void", Token::Type::KEYWORD}, {"fin", Token::Type::KEYWORD},
     {"for", Token::Type::KEYWORD}, {"struct", Token::Type::KEYWORD},
+    {"import", Token::Type::KEYWORD},
 };
 
 const std::unordered_map<std::string, Primitive> primitives = {
@@ -95,7 +96,6 @@ void Lexer::simplitiveBinOp(std::vector<Token>* tokens, const std::string &value
 std::vector<Token> Lexer::tokenize() {
     std::vector<Token> tokens;
 
-    // Sort operators by length descending to match multi-char first
     std::vector<std::pair<std::string, Token::Type>> sortedOps(operators.begin(), operators.end());
     std::sort(sortedOps.begin(), sortedOps.end(), [](const auto &a, const auto &b) {
         return a.first.size() > b.first.size();
@@ -213,7 +213,6 @@ std::vector<Token> Lexer::tokenize() {
                         goto out;
                     }
                     if (decimal) {
-                        // it's a range
                         throw std::runtime_error("Multiple decimal points in number");
                     }
                     decimal = true;
@@ -227,7 +226,6 @@ std::vector<Token> Lexer::tokenize() {
             continue;
         }
 
-        // Identifier / keyword / primitive
         if (std::isalpha(peek()) || peek() == '_') {
             std::string ident;
             while (std::isalnum(peek()) || peek() == '_') ident += consume();

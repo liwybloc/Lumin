@@ -154,6 +154,7 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out, 
         case ASTNode::Type::NDARRAY_ASSIGN:
         case ASTNode::Type::STRUCT_DECLARE:
         case ASTNode::Type::STRUCT_ASSIGNMENT:
+        case ASTNode::Type::IMPORT:
             writeVarint(out, ctx.getIndex(node->strValue));
             break;
         default:
@@ -195,8 +196,7 @@ static std::shared_ptr<ASTNode> decodeNode(std::istream &in, const LumpContext &
     switch (n->type) {
         case ASTNode::Type::FUNCTION:
             n->retType = ctx.getString(readVarint(in));
-            n->strValue = ctx.getString(readVarint(in));
-            break;
+            [[fallthrough]];
         case ASTNode::Type::NUMBER:
         case ASTNode::Type::STRING:
         case ASTNode::Type::IDENTIFIER:
@@ -205,6 +205,7 @@ static std::shared_ptr<ASTNode> decodeNode(std::istream &in, const LumpContext &
         case ASTNode::Type::NDARRAY_ASSIGN:
         case ASTNode::Type::STRUCT_DECLARE:
         case ASTNode::Type::STRUCT_ASSIGNMENT:
+        case ASTNode::Type::IMPORT:
             n->strValue = ctx.getString(readVarint(in));
             break;
         default:
@@ -240,6 +241,11 @@ void Lumper::lump(std::string &loc) {
             case ASTNode::Type::IDENTIFIER:
             case ASTNode::Type::PRIMITIVE_ASSIGNMENT:
             case ASTNode::Type::ARRAY_ASSIGN:
+            case ASTNode::Type::NDARRAY_ASSIGN:
+            case ASTNode::Type::STRUCT_ASSIGNMENT:
+            case ASTNode::Type::STRUCT_DECLARE:
+            case ASTNode::Type::SIZED_ARRAY_DECLARE:
+            case ASTNode::Type::IMPORT:
                 ctx.getIndex(node->strValue);
                 break;
             default: break;
@@ -266,11 +272,9 @@ void Lumper::lump(std::string &loc) {
     std::ofstream out(loc, std::ios::binary);
     if (!out) throw std::runtime_error("Cannot open file for writing");
 
-    // Write magic and version **before compression**
     out.write(LUMP_MAGIC, 4);
     writeByte(out, LUMP_VERSION);
 
-    // Write original size of the compressed data
     uint64_t origSize = inData.size();
     out.write(reinterpret_cast<char*>(&origSize), sizeof(origSize));
 
@@ -290,7 +294,7 @@ std::shared_ptr<ASTNode> Lumper::unlump(const std::string &loc) {
     if (version != LUMP_VERSION)
         throw std::runtime_error("Unsupported LUMP version");
 
-    uint64_t decompressedSize;
+    unsigned long decompressedSize;
     in.read(reinterpret_cast<char*>(&decompressedSize), sizeof(decompressedSize));
 
     in.seekg(0, std::ios::end);

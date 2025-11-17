@@ -7,7 +7,7 @@
     },
     {
       "name": "keyword.control.lum",
-      "match": "\\b(fin|return|if|else|for|while|->|nil)\\b"
+      "match": "\\b(fin|return|if|else|for|while|nil|import)\\b"
     },
     {
       "begin": "\\bstruct\\b",

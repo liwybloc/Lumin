@@ -37,6 +37,7 @@ struct ASTNode {
         NDARRAY_ASSIGN,
         SIZED_ARRAY_DECLARE,
         STRUCT_DECLARE,
+        IMPORT,
     } type;
 
     uint8_t valueType;

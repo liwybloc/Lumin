@@ -1,81 +1,12 @@
 #include "executor.hpp"
 #include "executils.hpp"
+#include "outstream.hpp"
 #include <iostream>
 #include <optional>
 #include <algorithm>
 
-static void printValue(const Value &val);
-
-template <typename ArrayType>
-void printArray(const std::shared_ptr<ArrayType> &arr) {
-    std::cout << "[";
-    for (size_t i = 0; i < arr->elements.size(); ++i) {
-        printValue(*arr->elements[i]);
-        if (i + 1 < arr->elements.size()) std::cout << ", ";
-    }
-    std::cout << "]";
-}
-
-void printStruct(const std::shared_ptr<Struct> &_struct) {
-    std::cout << _struct->name << "{";
-    int index = 0;
-    for (const auto &[name, value] : _struct->fields) {
-        std::cout << name << ": ";
-        printValue(value);
-        if(++index < _struct->fields.size()) std::cout << ",";
-    }
-    std::cout << "}";
-}
-
-static void printValue(const Value &val) {
-    std::visit(overloaded{
-        [](int v) { std::cout << v; },
-        [](bool b) { std::cout << (b ? "true" : "false"); },
-        [](const std::string &s) { std::cout << s; },
-        [](const std::shared_ptr<IntArray> &arr) { printArray(arr); },
-        [](const std::shared_ptr<BoolArray> &arr) { printArray(arr); },
-        [](const std::shared_ptr<StringArray> &arr) { printArray(arr); },
-        [](const std::shared_ptr<Function> &) { std::cout << "[function]"; },
-        [](const std::shared_ptr<Struct> &_struct) { printStruct(_struct); },
-        [](std::nullptr_t) { std::cout << "nil"; },
-        [](auto&) { std::cout << "[unknown]"; }
-    }, val);
-}
-
 Executor::Executor(std::shared_ptr<ASTNode> root) : root(root) {
     globalEnv = std::make_shared<Environment>();
-
-    auto printFunc = [](const std::vector<std::shared_ptr<Value>> &args, bool newline) -> std::shared_ptr<Value> {
-        for (const auto &arg : args) printValue(*arg);
-        if (newline) std::cout << std::endl;
-        return std::make_shared<Value>(0);
-    };
-
-    globalEnv->set("print", std::make_shared<Function>(Function{
-        [printFunc](const std::vector<std::shared_ptr<Value>> &args) { return printFunc(args, false); }
-    }));
-    globalEnv->set("println", std::make_shared<Function>(Function{
-        [printFunc](const std::vector<std::shared_ptr<Value>> &args) { return printFunc(args, true); }
-    }));
-    globalEnv->set("printf", std::make_shared<Function>(Function{
-        [this](const std::vector<std::shared_ptr<Value>> &args) -> std::shared_ptr<Value> {
-            if (args.empty()) return std::make_shared<Value>(0);
-
-            std::string format = getStringValue(*args[0]);
-            size_t argIndex = 1;
-            size_t pos = 0;
-
-            while ((pos = format.find("{}", pos)) != std::string::npos && argIndex < args.size()) {
-                std::string str = getStringValue(*args[argIndex]);
-                format.replace(pos, 2, str);
-                pos += str.size();
-                argIndex++;
-            }
-
-            std::cout << format;
-            return std::make_shared<Value>(0);
-        }
-    }));
 
     globalEnv->set("true", Value(true));
     globalEnv->set("false", Value(false));
@@ -133,51 +64,53 @@ void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, std::share
 
 Value Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
     std::string structName = node->children[0]->strValue;
-    auto structValue = env->getType(structName);
-    if(structValue == nullptr) throw std::runtime_error("Struct not found: " + structName);
+    auto structType = env->getType(structName);
+    if (!structType) throw std::runtime_error("Struct not found: " + structName);
 
-    Struct _struct = Struct(structName, structValue);
+    auto rhsNode = node->children[1];
 
-    auto block = node->children[1];
-    int positionalIndex = 0;
+    if (rhsNode->type != ASTNode::Type::BLOCK) {
+        Value val = evaluateExpression(rhsNode, env);
 
-    for(auto &child : block->children) {
-        if(child->type == ASTNode::Type::PRIMITIVE_ASSIGNMENT || child->type == ASTNode::Type::STRUCT_ASSIGNMENT) {
-            std::string fieldName = child->strValue;
-            
-            auto it = std::find_if(structValue->fields.begin(), structValue->fields.end(),
-                [&fieldName](const auto& pair){ return pair.first == fieldName; });
-
-            if (it == structValue->fields.end()) {
-                throw std::runtime_error("Struct " + structName + " does not have field: " + fieldName);
-            }
-            
-            Value evaluatedValue;
-            if(child->type == ASTNode::Type::PRIMITIVE_ASSIGNMENT) {
-                evaluatedValue = evaluateExpression(child->children[0], env);
-            } else { // STRUCT_ASSIGNMENT
-                evaluatedValue = handleStructAssignment(child, env);
-            }
-            _struct.fields.push_back({fieldName, evaluatedValue});
-            
-        } else {
-            if (positionalIndex >= structValue->fields.size())
-                throw std::runtime_error("Too many positional values for struct: " + structName);
-
-            const std::string &key = structValue->fields[positionalIndex].first;
-            
-            Value evaluatedValue = evaluateExpression(child, env);
-        
-            _struct.fields.push_back({key, evaluatedValue});
-            
-            positionalIndex++;
+        if (!std::holds_alternative<std::shared_ptr<Struct>>(val)) {
+            throw std::runtime_error("RHS expression does not evaluate to a struct for direct assignment: " + structName);
         }
+
+        env->set(node->strValue, val);
+        return val;
     }
 
-    Value val = Value(std::make_shared<Struct>(_struct));
+    auto newStruct = std::make_shared<Struct>(structName, structType);
+    int positionalIndex = 0;
+
+    for (auto &child : rhsNode->children) {
+        std::string fieldName;
+        Value evaluatedValue;
+
+        if (child->type == ASTNode::Type::PRIMITIVE_ASSIGNMENT) {
+            fieldName = child->strValue;
+            evaluatedValue = evaluateExpression(child->children[0], env);
+        } else if (child->type == ASTNode::Type::STRUCT_ASSIGNMENT) {
+            fieldName = child->strValue;
+            evaluatedValue = handleStructAssignment(child, env);
+        } else {
+            if (positionalIndex >= structType->fields.size())
+                throw std::runtime_error("Too many positional values for struct: " + structName);
+
+            fieldName = structType->fields[positionalIndex].first;
+            evaluatedValue = evaluateExpression(child, env);
+            positionalIndex++;
+        }
+
+        newStruct->addField(fieldName, evaluatedValue);
+    }
+
+    Value val = Value(newStruct);
     env->set(node->strValue, val);
     return val;
 }
+
+
 int Executor::getIntValue(const Value &val) {
     return extract<int>(
         val,
@@ -239,7 +172,12 @@ Value Executor::handleAssignment(
         throw std::runtime_error("Left-hand side of assignment is not a struct or object");
     }
 
-    env->selfRef = std::make_shared<Value>(env->get(node->strValue));
+    if (modify) {
+        env->selfRef = std::make_shared<Value>(env->get(node->strValue));
+    } else {
+        env->selfRef = nullptr;
+    }
+
     Value val = node->children.empty() ? Value(0) : evaluateExpression(node->children[0], env);
     if (modify) env->modify(node->strValue, val);
     else env->set(node->strValue, val);

@@ -3,11 +3,6 @@
 #include <tuple>
 #include <sstream>
 
-// Assuming the user's Token::Type enum has a value for COLON.
-// We use 70 as a placeholder value for Token::Type::COLON here.
-// You must update the constant 70 to match your actual Token::Type::COLON value.
-constexpr int TOKEN_TYPE_COLON = 70;
-
 static std::shared_ptr<ASTNode> makeNode(ASTNode::Type t = ASTNode::Type::IDENTIFIER, int valueType = 67) {
     auto node = std::make_shared<ASTNode>();
     node->type = t;
@@ -126,37 +121,19 @@ std::shared_ptr<ASTNode> Parser::parseDeclarationWithTypeAndName(const Token &ty
         }
         consume();
 
+        auto exprNode = parseExpression();
+
         if (!isPrimitive) {
-            expect(Token::Type::LBRACE, "Struct initializers must use '{ ... }' syntax", true);
-            
-            auto initNode = makeNode(ASTNode::Type::BLOCK);
-            while (!match(Token::Type::RBRACE)) {
-                
-                if (match(Token::Type::IDENTIFIER) && peek(1).type == Token::Type::COLON) { 
-                
-                    const Token fieldNameToken = consume();
-                    
-                    expect(Token::Type::COLON, "Expected ':' for named struct field initialization (e.g., {field: value})", true);
-                    
-                    auto fieldAssignNode = makeNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT); 
-                    fieldAssignNode->strValue = fieldNameToken.value;
-                    fieldAssignNode->children.push_back(parseExpression());
-                    
-                    initNode->children.push_back(fieldAssignNode);
-                } else {
-                    initNode->children.push_back(parseExpression());
-                }
-
-                if (match(Token::Type::COMMA)) consume();
+            if (exprNode->type != ASTNode::Type::IDENTIFIER &&
+                exprNode->type != ASTNode::Type::CALL) {
+                error("Structs can only be initialized from a variable or function returning a struct");
             }
-            expect(Token::Type::RBRACE, "Expected '}' after struct initializer", true);
-
-            node->children.push_back(initNode);
+            node->children.push_back(exprNode);
         } else {
             if (isArray) {
                 node->children.push_back(parseArrayLiteral());
             } else {
-                node->children.push_back(parseExpression());
+                node->children.push_back(exprNode);
             }
         }
     } else if (arraySize != nullptr) {
@@ -271,6 +248,14 @@ std::shared_ptr<ASTNode> Parser::parseStatement() {
             }
             expect(Token::Type::RBRACE, "Expected '}' after struct declaration", true);
             expect(Token::Type::SEMICOLON, "Expected ';' after struct declaration", true);
+            return node;
+        }
+
+        if(kw == "import") {
+            node->type = ASTNode::Type::IMPORT;
+            node->valueType = 1;
+            node->strValue = expect(Token::Type::STRING, "Expected import string following import declaration", true).value;
+            expect(Token::Type::SEMICOLON, "Expected ';' after import statement", true);
             return node;
         }
 

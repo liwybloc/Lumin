@@ -2,6 +2,43 @@
 #include "executils.hpp"
 #include <iostream>
 #include <optional>
+#include "outstream.hpp"
+#include "filestream.hpp"
+
+template <typename ArrayType>
+void Executor::printArray(const std::shared_ptr<ArrayType> &arr) {
+    std::cout << "[";
+    for (size_t i = 0; i < arr->elements.size(); ++i) {
+        printValue(*arr->elements[i]);
+        if (i + 1 < arr->elements.size()) std::cout << ", ";
+    }
+    std::cout << "]";
+}
+
+void Executor::printStruct(const std::shared_ptr<Struct> &_struct) {
+    std::cout << _struct->name << "{";
+    int index = 0;
+    for (const auto &[name, value] : _struct->fields) {
+        std::cout << name << ": ";
+        printValue(value);
+        if(++index < _struct->fields.size()) std::cout << ",";
+    }
+    std::cout << "}";
+}
+
+void Executor::printValue(const Value &val) {
+    std::visit(overloaded{
+        [](int v) { std::cout << v; },
+        [](bool b) { std::cout << (b ? "true" : "false"); },
+        [](const std::string &s) { std::cout << s; },
+        [this](const std::shared_ptr<IntArray> &arr) { printArray(arr); },
+        [this](const std::shared_ptr<BoolArray> &arr) { printArray(arr); },
+        [this](const std::shared_ptr<StringArray> &arr) { printArray(arr); },
+        [](const std::shared_ptr<Function> &) { std::cout << "[function]"; },
+        [this](const std::shared_ptr<Struct> &_struct) { printStruct(_struct); },
+        [](std::nullptr_t) { std::cout << "nil"; }
+    }, val);
+}
 
 Value Executor::run() {
     executeNode(root, globalEnv);
@@ -16,6 +53,24 @@ Value Executor::run() {
     return Value(0);
 }
 
+using ENV = std::shared_ptr<Environment>;
+const std::unordered_map<std::string, std::function<void(ENV, Executor*)>>& getImportMaps() {
+    static const std::unordered_map<std::string, std::function<void(ENV, Executor*)>> maps = {
+        {"outstream", [](ENV env, Executor* exec) { addOutstream(env, exec); }},
+        {"filestream", [](ENV env, Executor* exec) { addFilestream(env, exec); }},
+    };
+    return maps;
+}
+
+void Executor::handleImport(const std::string &moduleName, ENV env) {
+    auto importMaps = getImportMaps();
+    auto it = importMaps.find(moduleName);
+    if (it == importMaps.end())
+        throw std::runtime_error("Unknown module: " + moduleName);
+
+    it->second(env, this);
+}
+
 ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
     switch (node->type) {
         case ASTNode::Type::PROGRAM:
@@ -24,6 +79,10 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr
             return executeBlock(node->children, std::make_shared<Environment>(env));
         case ASTNode::Type::STRUCT_DECLARE: {
             handleStructDeclaration(node, env);
+            return ReturnValue();
+        }
+        case ASTNode::Type::IMPORT: {
+            handleImport(node->strValue, env);
             return ReturnValue();
         }
         case ASTNode::Type::EXPRESSION_STATEMENT:
@@ -325,6 +384,6 @@ Value Executor::evaluateExpression(std::shared_ptr<ASTNode> node, std::shared_pt
                 default: throw std::runtime_error("Unsupported unary operation");
             }
         }
-        default: throw std::runtime_error("Unsupported expression type: " + std::to_string(static_cast<int>(node->type)));
+        default: throw std::runtime_error("Unsupported expression type: " + std::to_string(static_cast<int>(node->type)) + " " + astToString(node).c_str());
     }
 }

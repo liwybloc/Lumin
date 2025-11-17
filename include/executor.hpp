@@ -12,6 +12,7 @@
 #include <functional>
 #include <optional>
 #include <vector>
+#include <any>
 
 struct Function;
 struct Struct;
@@ -51,9 +52,44 @@ struct StructType {
 struct Struct {
     const std::string name;
     const std::shared_ptr<StructType> type;
-    Struct(std::string &name, std::shared_ptr<StructType> type) : name(name), type(type) {}
+
+    Struct(const std::string &name, std::shared_ptr<StructType> type) : name(name), type(type) {}
+
     std::vector<std::pair<std::string, Value>> fields;
+    std::vector<std::pair<std::string, std::any>> hiddenFields;
+private:
+    std::unordered_map<std::string, size_t> fieldIndexMap;
+
+public:
+    void addField(const std::string &fieldName, const Value &value) {
+        fieldIndexMap[fieldName] = fields.size();
+        fields.emplace_back(fieldName, value);
+    }
+
+    void addHiddenField(const std::string &fieldName, const std::any &value) {
+        hiddenFields.emplace_back(fieldName, value);
+    }
+
+    Value& getField(const std::string &fieldName) {
+        auto it = fieldIndexMap.find(fieldName);
+        if (it == fieldIndexMap.end()) throw std::runtime_error("Field not found: " + fieldName);
+        return fields[it->second].second;
+    }
+
+    std::any& getHiddenField(const std::string &fieldName) {
+        auto it = std::find_if(hiddenFields.begin(), hiddenFields.end(),
+                                 [&fieldName](const auto &pair){ return pair.first == fieldName; });
+        if (it == hiddenFields.end()) throw std::runtime_error("Hidden field not found: " + fieldName);
+        return it->second;
+    }
+
+    void setField(const std::string &fieldName, const Value &value) {
+        auto it = fieldIndexMap.find(fieldName);
+        if (it == fieldIndexMap.end()) throw std::runtime_error("Field not found: " + fieldName);
+        fields[it->second].second = value;
+    }
 };
+
 
 struct ReturnValue {
     bool hasReturn;
@@ -102,7 +138,8 @@ public:
     explicit Executor(std::shared_ptr<ASTNode> root);
     Value run();
 
-    // Template member functions defined inline
+    void handleImport(const std::string &moduleName, std::shared_ptr<Environment> env);
+
     template <typename T, typename... Cases>
     T extract(const Value &val, Cases &&...cases) {
         return std::visit(overloaded{
@@ -154,6 +191,15 @@ public:
                                 std::shared_ptr<Environment> env,
                                 std::optional<std::shared_ptr<ASTNode>> valNode);
 
+    int getIntValue(const Value &val);
+    bool getBoolValue(const Value &val);
+    std::string getStringValue(const Value &val);
+
+    void printStruct(const std::shared_ptr<Struct> &_struct);
+    template <typename ArrayType>
+    void printArray(const std::shared_ptr<ArrayType> &arr);
+    void printValue(const Value &val);
+
 private:
     std::shared_ptr<ASTNode> root;
     std::shared_ptr<Environment> globalEnv;
@@ -170,10 +216,6 @@ private:
     Value handleAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, bool modify);
     Value primitiveValue(const Primitive val);
     Value evaluateExpression(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
-
-    int getIntValue(const Value &val);
-    bool getBoolValue(const Value &val);
-    std::string getStringValue(const Value &val);
 };
 
 #endif
