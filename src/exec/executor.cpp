@@ -108,10 +108,16 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr
         case ASTNode::Type::STRUCT_ASSIGNMENT: handleStructAssignment(node, env); return {};
         case ASTNode::Type::RETURN_STATEMENT:
             return ReturnValue(node->children.empty() ? Value(nullptr) : evaluateExpression(node->children[0], env));
-        case ASTNode::Type::IF_STATEMENT:
-            if (getBoolValue(evaluateExpression(node->children[0], env))) return executeNode(node->children[1], env);
-            if (node->children.size() > 2) return executeNode(node->children[2], env);
+        case ASTNode::Type::IF_STATEMENT: {
+            bool cond = getBoolValue(evaluateExpression(node->children[0], env));
+            if (cond) {
+                return executeNode(node->children[1], env);
+            }
+            if (node->children.size() > 2 && node->children[2]->type == ASTNode::Type::ELSE_STATEMENT) {
+                return executeNode(node->children[2]->children[0], env);
+            }
             return {};
+        }
         case ASTNode::Type::WHILE_STATEMENT:
             while (getBoolValue(evaluateExpression(node->children[0], env))) {
                 auto r = executeNode(node->children[1], env);

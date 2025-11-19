@@ -174,7 +174,6 @@ std::shared_ptr<ASTNode> Parser::parseStatement(int depth) {
 
     switch (tok.type) {
         case Token::Type::LBRACE:
-            consume();
             return parseBlock(depth + 1);
 
         case Token::Type::PRIMITIVE: {

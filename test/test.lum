@@ -1,5 +1,12 @@
 import "monsterzeroultra";
+import "test2.lum" as math;
+import "outstream";
 
 fin main() -> nil {
+
+    int x = 6;
+    int y = 7;
+
+    println(math.add(x, y));
 
 }
