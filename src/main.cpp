@@ -42,9 +42,31 @@ std::string stringifyToken(const Token& token) {
         {Token::Type::LBRACKET, "LBRACKET"},
         {Token::Type::RBRACKET, "RBRACKET"},
     };
-
     auto it = tokenTypeMap.find(token.type);
     return it != tokenTypeMap.end() ? it->second : "<UNKNOWN>";
+}
+
+struct ParsedData {
+    std::shared_ptr<ASTNode> ast;
+    std::string lumpPath;
+};
+
+ParsedData parseAndLumpIfNeeded(const std::string& filename, const std::string& source, bool forceLump) {
+    Lexer lexer(source);
+    auto tokens = lexer.tokenize();
+    Parser parser(tokens, filename);
+    auto ast = parser.parseProgram();
+
+    std::ofstream debug("astdebug.txt");
+    debug << astToString(ast);
+    debug.close();
+
+    std::string lumpPath = filename.substr(0, filename.size() - 4) + ".lmp";
+    if (forceLump) {
+        Lumper lumper{ast};
+        lumper.lump(lumpPath);
+    }
+    return {ast, lumpPath};
 }
 
 int main(int argc, char *argv[]) {
@@ -63,7 +85,6 @@ int main(int argc, char *argv[]) {
         expFileName = ".lum";
         runLumper = true;
     };
-
     commands["--run"] = [&](int& i, char**) {
         expFileName = "";
         exec = true;
@@ -85,12 +106,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (filename.empty()) {
-        std::cout << "Missing input file.\n";
-        return 1;
-    }
-
-    if(expFileName != "" && filename.substr(filename.size() - 4) != expFileName) {
-        std::cerr << "Invalid file extension. Expected " << expFileName << ".\n";
+        std::cerr << "Missing input file.\n";
         return 1;
     }
 
@@ -106,28 +122,17 @@ int main(int argc, char *argv[]) {
     std::string source = buffer.str();
 
     if (runLumper) {
-        Lexer lexer(source);
-        auto tokens = lexer.tokenize();
-
-        Parser parser(tokens);
-        auto ast = parser.parse();
-        std::string lumpLoc = filename.substr(0, filename.size() - 4) + ".lmp";
-        Lumper lumper{ast};
-        lumper.lump(lumpLoc);
+        parseAndLumpIfNeeded(filename, source, true);
         return 0;
     } else if (exec) {
         std::string ext = filename.substr(filename.size() - 4);
         std::string lumpLoc;
 
+        std::shared_ptr<ASTNode> ast;
         if (ext == ".lum") {
-            Lexer lexer(source);
-            auto tokens = lexer.tokenize();
-            Parser parser(tokens);
-            auto ast = parser.parse();
-
-            lumpLoc = filename.substr(0, filename.size() - 4) + ".lmp";
-            Lumper lumper{ast};
-            lumper.lump(lumpLoc);
+            auto parsed = parseAndLumpIfNeeded(filename, source, true);
+            ast = parsed.ast;
+            lumpLoc = parsed.lumpPath;
         } else if (ext == ".lmp") {
             lumpLoc = filename;
         } else {
@@ -135,7 +140,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        Lumper lumper{nullptr};
+        Lumper lumper{ast};
         auto decoded = lumper.unlump(lumpLoc);
         if (!decoded) {
             std::cerr << "Failed to unlump file.\n";
@@ -147,4 +152,4 @@ int main(int argc, char *argv[]) {
     }
 
     return 0;
-}   
+}

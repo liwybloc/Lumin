@@ -25,9 +25,230 @@ int Parser::getPrecedence(Token::Type type) const {
     }
 }
 
-std::string typeToString(ASTNode::Type type) {
+std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
+    return {
+        {
+            "return",
+            [](Parser* p, int depth) {
+                auto node = makeNode(ASTNode::Type::RETURN_STATEMENT);
+                node->children.push_back(p->parseExpression());
+                p->expect(Token::Type::SEMICOLON, "Expected ';' after return statement", true);
+                return node;
+            }
+        },
+        {
+            "if",
+            [](Parser* p, int depth) {
+                auto node = makeNode(ASTNode::Type::IF_STATEMENT);
+                p->expect(Token::Type::LPAREN, "Expected '(' after if", true);
+                node->children.push_back(p->parseExpression());
+                p->expect(Token::Type::RPAREN, "Expected ')' after if condition", true);
+                node->children.push_back(p->parseStatement(depth + 1));
+
+                if (p->match(Token::Type::KEYWORD) && p->peek().value == "else") {
+                    p->consume();
+                    auto elseNode = makeNode(ASTNode::Type::ELSE_STATEMENT);
+                    elseNode->children.push_back(p->parseStatement(depth + 1));
+                    node->children.push_back(elseNode);
+                }
+                return node;
+            }
+        },
+        {
+            "while",
+            [](Parser* p, int depth) {
+                auto node = makeNode(ASTNode::Type::WHILE_STATEMENT);
+                p->expect(Token::Type::LPAREN, "Expected '(' after while", true);
+                node->children.push_back(p->parseExpression());
+                p->expect(Token::Type::RPAREN, "Expected ')' after while condition", true);
+                node->children.push_back(p->parseStatement(depth + 1));
+                return node;
+            }
+        },
+        {
+            "fin",
+            [](Parser* p, int depth) {
+                auto node = makeNode(ASTNode::Type::FUNCTION);
+                node->valueType = 1;
+                node->strValue = p->expect(Token::Type::IDENTIFIER, "Expected identifier after 'fin'", true).value;
+                p->expect(Token::Type::LPAREN, "Expected '(' after function name", true);
+
+                while (p->match(Token::Type::IDENTIFIER)) {
+                    auto param = makeNode(ASTNode::Type::IDENTIFIER);
+                    param->strValue = p->consume().value;
+                    node->children.push_back(param);
+                    if (p->match(Token::Type::COMMA)) p->consume();
+                }
+
+                p->expect(Token::Type::RPAREN, "Expected ')' after function parameters", true);
+                p->expect(Token::Type::ARROW, "Expected '->' after function parameters", true);
+
+                const Token& t = p->consume();
+                if (!(t.type == Token::Type::PRIMITIVE || t.type == Token::Type::IDENTIFIER))
+                    p->error("Expected type after arrow");
+
+                node->retType = t.value;
+                if (t.type == Token::Type::PRIMITIVE) node->primitiveValue = t.primitiveValue;
+
+                if (p->match(Token::Type::LBRACE))
+                    node->children.push_back(p->parseBlock(depth + 1));
+                else
+                    node->children.push_back(p->parseStatement(depth + 1));
+                return node;
+            }
+        },
+        {
+            "for",
+            [](Parser* p, int depth) {
+                auto node = makeNode(ASTNode::Type::FOR_STATEMENT);
+                p->expect(Token::Type::LPAREN, "Expected '(' after for", true);
+                node->children.push_back(p->parseStatement(depth + 1));
+                node->children.push_back(p->parseExpression());
+                p->expect(Token::Type::SEMICOLON, "Expected ';' after for loop condition", true);
+                node->children.push_back(p->parseExpression());
+                p->expect(Token::Type::RPAREN, "Expected ')' after for loop increment", true);
+                node->children.push_back(p->parseStatement(depth + 1));
+                return node;
+            }
+        },
+        {
+            "struct",
+            [](Parser* p, int depth) {
+                auto node = makeNode(ASTNode::Type::STRUCT_DECLARE);
+                node->valueType = 1;
+                node->strValue = p->expect(Token::Type::IDENTIFIER, "Expected struct name", true).value;
+
+                p->expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
+                while (p->peek().type != Token::Type::RBRACE && p->peek().type != Token::Type::END_OF_FILE) {
+                    if (p->match(Token::Type::PRIMITIVE) || p->match(Token::Type::IDENTIFIER))
+                        node->children.push_back(p->parseStatement(depth + 1));
+                    else
+                        break;
+                }
+                p->expect(Token::Type::RBRACE, "Expected '}' after struct declaration", true);
+                p->expect(Token::Type::SEMICOLON, "Expected ';' after struct declaration", true);
+                return node;
+            }
+        },
+        {
+            "import",
+            [](Parser* p, int depth) {
+                if (depth != 0)
+                    p->error("Import statements are only allowed at top-level");
+
+                auto node = makeNode(ASTNode::Type::STRING);
+                node->valueType = 1;
+                node->strValue = p->expect(Token::Type::STRING, "Expected import string", true).value;
+
+                if(node->strValue.ends_with(".lum")) {
+                    std::string v = p->expect(Token::Type::KEYWORD, "Expected 'as' after import statement", true).value;
+                    if(v != "as") p->error("Expected 'as' after import statement");
+
+                    std::string alias = p->expect(Token::Type::IDENTIFIER, "Expected namespace identifier after 'as' in import statement", true).value;
+                    auto aliasNode = makeTypedNode(ASTNode::Type::IDENTIFIER, 1);
+                    aliasNode->strValue = alias;
+                    node->children.push_back(aliasNode);
+                }
+
+                p->expect(Token::Type::SEMICOLON, "Expected ';' after import statement", true);
+                p->importBlock->children.push_back(node);
+                return nullptr;
+            }
+        },
+        {
+            "export",
+            [](Parser* p, int depth) {
+                if (depth!= 0)
+                    p->error("Export statements are only allowed at top-level");
+
+                if(!p->match(Token::Type::IDENTIFIER) && (!p->match(Token::Type::KEYWORD) || p->peek().value != "fin") && !p->match(Token::Type::PRIMITIVE)) {
+                    p->error("Expected function, type, or primitive after export keyword");
+                }
+                
+                auto node = p->parseStatement(0);
+
+                if(node->type == ASTNode::Type::IDENTIFIER) {
+                    p->error("Expected function, type, or primitive after export keyword");
+                }
+                
+                auto dataNode = makeNode(ASTNode::Type::STRING);
+                dataNode->valueType = 1;
+                dataNode->strValue = node->strValue;
+                p->exportBlock->children.push_back(dataNode);
+
+                return node;
+            }
+        },
+        {
+            "true",
+            [](Parser* p, int depth) {
+                auto node = makeTypedNode(ASTNode::Type::BOOL, 1);
+                node->strValue = "1";
+                return node;
+            }
+        },
+        {
+            "false",
+            [](Parser* p, int depth) {
+                auto node = makeTypedNode(ASTNode::Type::BOOL, 1);
+                node->strValue = "0";
+                return node;
+            }
+        }
+    };
+}
+
+std::string typeToString(Token::Type type) {
+    switch (type) {
+        case Token::Type::END_OF_FILE: return "END_OF_FILE";
+        case Token::Type::SEMICOLON: return "SEMICOLON";
+        case Token::Type::COMMA: return "COMMA";
+        case Token::Type::EQUAL: return "EQUAL";
+        case Token::Type::LBRACKET: return "LBRACKET";
+        case Token::Type::RBRACKET: return "RBRACKET";
+        case Token::Type::LBRACE: return "LBRACE";
+        case Token::Type::RBRACE: return "RBRACE";
+        case Token::Type::LPAREN: return "LPAREN";
+        case Token::Type::RPAREN: return "RPAREN";
+        case Token::Type::PLUS: return "PLUS";
+        case Token::Type::MINUS: return "MINUS";
+        case Token::Type::MULTIPLY: return "MULTIPLY";
+        case Token::Type::DIVIDE: return "DIVIDE";
+        case Token::Type::MODULUS: return "MODULUS";
+        case Token::Type::COMPARISON: return "COMPARISON";
+        case Token::Type::NOT: return "NOT";
+        case Token::Type::LESS: return "LESS";
+        case Token::Type::GREATER: return "GREATER";
+        case Token::Type::LESS_EQUAL: return "LESS_EQUAL";
+        case Token::Type::GREATER_EQUAL: return "GREATER_EQUAL";
+        case Token::Type::AND: return "AND";
+        case Token::Type::OR: return "OR";
+        case Token::Type::ARROW: return "ARROW";
+        case Token::Type::SELF_REFERENCE: return "SELF_REFERENCE";
+        case Token::Type::RANGE: return "RANGE";
+        case Token::Type::READ: return "READ";
+        case Token::Type::BITWISE_AND: return "BITWISE_AND";
+        case Token::Type::BITWISE_OR: return "BITWISE_OR";
+        case Token::Type::BITWISE_XOR: return "BITWISE_XOR";
+        case Token::Type::BITWISE_NOT: return "BITWISE_NOT";
+        case Token::Type::QUESTION_MARK: return "QUESTION_MARK";
+        case Token::Type::COLON: return "COLON";
+        case Token::Type::INCREMENT: return "INCREMENT";
+        case Token::Type::DECREMENT: return "DECREMENT";
+        case Token::Type::NUMBER: return "NUMBER";
+        case Token::Type::STRING: return "STRING";
+        case Token::Type::BOOL: return "BOOL";
+        case Token::Type::IDENTIFIER: return "IDENTIFIER";
+        case Token::Type::KEYWORD: return "KEYWORD";
+        case Token::Type::PRIMITIVE: return "PRIMITIVE";
+        default: return "UNKNOWN";
+    }
+}
+
+std::string astTypeToString(ASTNode::Type type) {
     switch(type) {
         case ASTNode::Type::PROGRAM: return "PROGRAM";
+        case ASTNode::Type::PRAGMA: return "PRAGMA";
         case ASTNode::Type::NUMBER: return "NUMBER";
         case ASTNode::Type::RANGE: return "RANGE";
         case ASTNode::Type::STRING: return "STRING";
@@ -54,6 +275,7 @@ std::string typeToString(ASTNode::Type type) {
         case ASTNode::Type::READ: return "READ";
         case ASTNode::Type::NDARRAY_ASSIGN: return "NDARRAY_ASSIGN";
         case ASTNode::Type::STRUCT_DECLARE: return "STRUCT_DECLARE";
+        case ASTNode::Type::IMPORT_BLOCK: return "IMPORT_BLOCK";
         default: return "UNKNOWN";
     }
 }
@@ -61,7 +283,7 @@ std::string typeToString(ASTNode::Type type) {
 std::string astToString(const std::shared_ptr<ASTNode> &node, int indent) {
     std::stringstream ss;
     std::string ind(indent * 2, ' ');
-    ss << ind << typeToString(node->type);
+    ss << ind << astTypeToString(node->type);
     if (!node->strValue.empty()) {
         ss << "{\"" << node->strValue << "\"}";
     }
@@ -82,9 +304,13 @@ std::string astToString(const std::shared_ptr<ASTNode> &node, int indent) {
     return ss.str();
 }
 
-std::shared_ptr<ASTNode> makeNode(ASTNode::Type t, int valueType) {
+std::shared_ptr<ASTNode> makeTypedNode(ASTNode::Type t, int valueType) {
     auto node = std::make_shared<ASTNode>();
     node->type = t;
     node->valueType = valueType;
     return node;
+}
+// because of intellisense
+std::shared_ptr<ASTNode> makeNode(ASTNode::Type t) {
+    return makeTypedNode(t, 67);
 }

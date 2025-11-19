@@ -4,9 +4,10 @@
 #include <string>
 #include "parser.hpp"
 
-std::string typeToString(ASTNode::Type type);
+std::string typeToString(Token::Type type);
 std::string astToString(const std::shared_ptr<ASTNode> &node, int indent);
 
-std::shared_ptr<ASTNode> makeNode(ASTNode::Type t = ASTNode::Type::IDENTIFIER, int valueType = 67);
+std::shared_ptr<ASTNode> makeTypedNode(ASTNode::Type t, int valueType);
+std::shared_ptr<ASTNode> makeNode(ASTNode::Type t);
 
 #endif

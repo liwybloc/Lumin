@@ -4,7 +4,6 @@
 #include <fstream>
 #include <memory>
 #include <string>
-#include <google/protobuf/descriptor.pb.h>
 
 void addFilestream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
     StructType fileType{"File"};

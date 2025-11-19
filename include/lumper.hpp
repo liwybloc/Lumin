@@ -3,16 +3,17 @@
 
 #include "parser.hpp"
 #include <memory>
+#include <string>
 
 class Lumper {
 public:
     explicit Lumper(const std::shared_ptr<ASTNode> &ast);
 
-    void lump(std::string &lumpLoc);
+    void lump(const std::string &lumpLoc);
     std::shared_ptr<ASTNode> unlump(const std::string &lumpLoc);
 
 private:
-    const std::shared_ptr<ASTNode> &ast;
+    const std::shared_ptr<ASTNode> ast;
 };
 
 #endif

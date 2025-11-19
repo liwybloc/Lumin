@@ -7,7 +7,7 @@
     },
     {
       "name": "keyword.control.lum",
-      "match": "\\b(fin|return|if|else|for|while|nil|import)\\b"
+      "match": "\\b(fin|return|if|else|for|while|nil|import|export|as)\\b|#\\w+"
     },
     {
       "begin": "\\bstruct\\b",
@@ -22,7 +22,7 @@
     },
     {
       "name": "storage.type.lum",
-      "match": "\\b(int|float|bool|string|struct)(\\[\\])?\\b"
+      "match": "\\b(int|float|bool|string|struct|false|true)(\\[\\])?\\b"
     },
     {
       "name": "entity.name.type.struct.lum",

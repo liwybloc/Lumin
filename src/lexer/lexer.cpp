@@ -2,8 +2,11 @@
 #include "lexerconsts.hpp"
 #include <unordered_map>
 #include <stdexcept>
+#include <sstream>
 #include <cctype>
 #include <algorithm>
+#include <numeric>
+#include <regex>
 
 Lexer::Lexer(const std::string &source) : source(source), current(0), lineIndex(1), colIndex(1) {}
 
@@ -53,6 +56,64 @@ void Lexer::simplitiveBinOp(std::vector<Token>* tokens, const std::string &value
     tokens->push_back(token);
 }
 
+bool Lexer::skipWhitespace() {
+    if (std::isspace(static_cast<unsigned char>(peek()))) {
+        consume();
+        return true;
+    }
+    return false;
+}
+
+std::vector<std::string> split(const std::string& str, char delimiter) {
+    std::vector<std::string> tokens;
+    std::stringstream ss(str);
+    std::string token;
+
+    while (std::getline(ss, token, delimiter)) {
+        tokens.push_back(token);
+    }
+
+    return tokens;
+}
+std::string shift(std::vector<std::string> vec) {
+    if (vec.empty()) return "";
+    std::string first = vec.front();
+    vec.erase(vec.begin());
+    return first;
+}
+
+std::string join(const std::vector<std::string>& vec, const std::string& delimiter) {
+    std::string result = std::accumulate(
+        std::next(vec.begin()), vec.end(), vec[0],
+        [delimiter](const std::string& a, const std::string& b) { return a + delimiter + b; }
+    );
+    return result;
+}
+
+void Lexer::applyHeader(const std::string &header) {
+    const std::vector<std::string> args = split(header, ' ');
+    if(args.empty()) throw std::runtime_error("Empty header");
+
+    const std::string cmd = shift(args);
+    
+    if(cmd == "alias") {
+        static const std::regex aliasPattern(R"(alias\s+\"([^\"]+)\"\s+as\s+\"([^\"]+)\")");
+
+        std::smatch match;
+        const std::string rest = join(args, " ");
+        if(!std::regex_match(rest, match, aliasPattern)) {
+            throw std::runtime_error(
+                "Expected alias in format 'alias \"search\" as \"replace\"'"
+            );
+        }
+
+        std::string from = match[1].str();
+        std::string to = match[2].str();
+
+        aliases[from] = to;
+    }
+}
+
 std::vector<Token> Lexer::tokenize() {
     std::vector<Token> tokens;
 
@@ -61,11 +122,33 @@ std::vector<Token> Lexer::tokenize() {
         return a.first.size() > b.first.size();
     });
 
-    while (peek()) {
-        if (std::isspace(static_cast<unsigned char>(peek()))) {
+    while(peek()) {
+        if(skipWhitespace()) continue;
+
+        if(peek() == '#') {
+            std::stringstream ss;
             consume();
+            char c;
+            while ((c = peek()) && c != '\n') {
+                ss << consume();
+            }
+
+            std::string header = ss.str();
+            applyHeader(header);
+
             continue;
         }
+
+        break;
+    }
+
+    for (const auto& [from, to] : aliases) {
+        std::regex re(R"((^|[^"])\b)" + from + R"(\b($|[^"]))");
+        source = std::regex_replace(source, re, "$1" + to + "$2");
+    }
+
+    while (peek()) {
+        if(skipWhitespace()) continue;
 
         if(peek() == '/') {
             if(peek(1) == '/') {
@@ -193,7 +276,7 @@ std::vector<Token> Lexer::tokenize() {
             Token token{Token::Type::IDENTIFIER, ident, tokenLine, tokenCol};
 
             if (keywords.find(ident) != keywords.end()) {
-                token.type = keywords.at(ident);
+                token.type = Token::Type::KEYWORD;
             } else if (primitives.find(ident) != primitives.end()) {
                 token.type = Token::Type::PRIMITIVE;
                 token.primitiveValue = primitives.at(ident);

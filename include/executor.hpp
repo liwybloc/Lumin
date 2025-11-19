@@ -3,6 +3,7 @@
 
 #include "parser.hpp"
 #include "executils.hpp"
+#include <stack>
 #include <unordered_map>
 #include <map>
 #include <memory>
@@ -17,9 +18,12 @@
 
 struct Function;
 struct Struct;
+struct ExportData;
 
 template<typename T>
 struct Array {
+    using value_type = T;
+
     std::vector<std::shared_ptr<T>> elements;
 
     void add(const std::shared_ptr<T>& element) {
@@ -38,7 +42,8 @@ using Value = std::variant<int, bool, std::nullptr_t, std::string,
                            std::shared_ptr<BoolArray>,
                            std::shared_ptr<StringArray>,
                            std::shared_ptr<Function>,
-                           std::shared_ptr<Struct>>;
+                           std::shared_ptr<Struct>,
+                           std::shared_ptr<ExportData>>;
 
 struct Function {
     std::function<std::shared_ptr<Value>(const std::vector<std::shared_ptr<Value>>&)> fn;
@@ -103,10 +108,21 @@ class Environment {
 public:
     explicit Environment(std::shared_ptr<Environment> parent = nullptr) : parent(parent) {}
 
-    std::shared_ptr<Value> selfRef = nullptr;
+    std::stack<Value> selfRefStack;
 
     void set(const std::string &name, const Value &val) { variables[name] = val; }
     void setType(const std::string &name, const std::shared_ptr<StructType> &type) { structTypes[name] = type; }
+
+    void pushSelfRef(const Value &val) { selfRefStack.push(val); }
+    void popSelfRef() { 
+        if (!selfRefStack.empty()) selfRefStack.pop(); 
+        else throw std::runtime_error("Attempted to pop empty selfRef stack");
+    }
+    Value currentSelfRef() const { 
+        if (!selfRefStack.empty()) return selfRefStack.top(); 
+        throw std::runtime_error("selfRef stack is empty");
+    }
+    bool hasSelfRef() const { return !selfRefStack.empty(); }
 
     std::shared_ptr<StructType> getType(const std::string &name) {
         if (structTypes[name]) return structTypes[name];
@@ -134,12 +150,30 @@ private:
     std::shared_ptr<Environment> parent;
 };
 
+using ENV = std::shared_ptr<Environment>;
+
+struct ExportData {
+
+    ExportData(const std::string &fileName) : fileName(fileName) {}
+
+    std::unordered_map<std::string, std::pair<ENV, std::string>> exports;
+    std::string fileName;
+
+    void addExport(const std::string &name, ENV env) {
+        exports[name] = { env, name };
+    }
+
+    Value getExportedValue(const std::string &name) {
+        auto it = exports.find(name);
+        if (it == exports.end()) throw std::runtime_error("Export not found: " + name);
+        return it->second.first->get(it->second.second);
+    }
+};
+
 class Executor {
 public:
     explicit Executor(std::shared_ptr<ASTNode> root);
     Value run();
-
-    void handleImport(const std::string &moduleName, std::shared_ptr<Environment> env);
 
     template <typename T, typename... Cases>
     T extract(const Value &val, Cases &&...cases) {
@@ -157,23 +191,22 @@ public:
         int selfRefValue = 0;
 
         for (const auto &idxNode : indicesNode->children) {
-            int val;
             if (idxNode->type == ASTNode::Type::RANGE) {
                 int start = getIntValue(evaluateExpression(idxNode->children[0], env));
-                env->selfRef = std::make_shared<Value>(start);
                 int end   = getIntValue(evaluateExpression(idxNode->children[1], env));
                 for (int i = start; i <= end; ++i) {
-                    selfRefValue = i;
-                    env->selfRef = std::make_shared<Value>(selfRefValue);
+                    env->pushSelfRef(i);
                     indices.push_back(i);
+                    env->popSelfRef();
                 }
             } else {
-                val = getIntValue(evaluateExpression(idxNode, env));
-                selfRefValue = val;
-                env->selfRef = std::make_shared<Value>(selfRefValue);
+                int val = getIntValue(evaluateExpression(idxNode, env));
+                env->pushSelfRef(val);
                 indices.push_back(val);
+                env->popSelfRef();
             }
         }
+
         return indices;
     }
 
@@ -197,17 +230,31 @@ public:
     std::string getStringValue(const Value &val);
 
     void printStruct(const std::shared_ptr<Struct> &_struct);
-    template <typename ArrayType>
+    template<typename T, typename ArrayType>
     void printArray(const std::shared_ptr<ArrayType> &arr);
+    template <typename T, typename ArrayType>
+    Value arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices);
+    template <typename T, typename ArrayType>
+    Value arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, std::shared_ptr<Environment> env);
     void printValue(const Value &val);
 
 private:
     std::shared_ptr<ASTNode> root;
     std::shared_ptr<Environment> globalEnv;
 
+    std::unordered_map<std::string, std::shared_ptr<ExportData>> exportData; 
+    std::unordered_map<std::string, std::shared_ptr<ASTNode>> pragmas;
+    std::vector<std::string> handlingModules;
+
     Value handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
     void handleStructDeclaration(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
     Value handleStructAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+
+    void handleImports(std::vector<std::shared_ptr<ASTNode>> children, ENV env);
+
+    void executePragma(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+
+    void executePragmas(std::vector<std::shared_ptr<ASTNode>> children, std::shared_ptr<Environment> env);
 
     ReturnValue executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
     ReturnValue executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, std::shared_ptr<Environment> env);

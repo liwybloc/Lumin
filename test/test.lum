@@ -1,10 +1,5 @@
-import "outstream";
-import "filestream";
+import "monsterzeroultra";
 
 fin main() -> nil {
-    File file = fopen("./test/test.lum", "r");
 
-    string data = fread(file);
-
-    println(data);
 }

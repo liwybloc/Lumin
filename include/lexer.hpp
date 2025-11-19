@@ -1,6 +1,7 @@
 #ifndef LEXER_H
 #define LEXER_H
 
+#include <unordered_map>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -97,6 +98,8 @@ public:
     Lexer(const std::string &source);
     std::vector<Token> tokenize();
 
+    std::unordered_map<std::string, std::string> aliases;
+
 private:
     std::string source;
     size_t current = 0;
@@ -108,6 +111,8 @@ private:
     void selfUpd(std::vector<Token> *tokens, const std::string &value, Token::Type type, unsigned long tokenLine, unsigned long tokenCol, int by);
     void pushSelfUpd(std::vector<Token> *tokens, const std::string &value, Token::Type type, unsigned long tokenLine, unsigned long tokenCol, int by);
     void simplitiveBinOp(std::vector<Token> *tokens, const std::string &value, Token::Type type, unsigned long tokenLine, unsigned long tokenCol);
+    bool skipWhitespace();
+    void applyHeader(const std::string &header);
 };
 
 #endif

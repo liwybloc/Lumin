@@ -29,7 +29,9 @@ const std::unordered_map<std::string, Token::Type> keywords = {
     {"while", Token::Type::KEYWORD}, {"return", Token::Type::KEYWORD},
     {"void", Token::Type::KEYWORD}, {"fin", Token::Type::KEYWORD},
     {"for", Token::Type::KEYWORD}, {"struct", Token::Type::KEYWORD},
-    {"import", Token::Type::KEYWORD},
+    {"import", Token::Type::KEYWORD}, {"export", Token::Type::KEYWORD},
+    {"as", Token::Type::KEYWORD}, {"false", Token::Type::KEYWORD},
+    {"true", Token::Type::KEYWORD},
 };
 
 const std::unordered_map<std::string, Primitive> primitives = {

@@ -8,38 +8,88 @@
 Executor::Executor(std::shared_ptr<ASTNode> root) : root(root) {
     globalEnv = std::make_shared<Environment>();
 
-    globalEnv->set("true", Value(true));
-    globalEnv->set("false", Value(false));
     globalEnv->set("nil", Value(nullptr));
 }
 
 Value Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+    int efficiency = std::stoi(node->children[0]->strValue);
+
     std::vector<int> shape;
-    for (size_t i = 0; i < node->children.size() - 1; ++i)
+    for (size_t i = 1; i < node->children.size() - 1; ++i)
         shape.push_back(getIntValue(evaluateExpression(node->children[i], env)));
 
-    int firstDim = shape[0]; 
     int totalElements = 1;
-    for (size_t i = 1; i < shape.size(); ++i)
-        totalElements *= shape[i];
+    for (auto dim : shape) totalElements *= dim;
 
     std::shared_ptr<ASTNode> rhsNode = node->children.back();
     auto resultArr = std::make_shared<IntArray>();
 
-    for (int currentIndex = 0; currentIndex < totalElements; ++currentIndex) {
-        env->selfRef = std::make_shared<Value>(currentIndex);
-        for (int subIndex = 0; subIndex < firstDim; ++subIndex) {
-            Value elementVal = evaluateExpression(rhsNode, env);
+    std::vector<int> indices(shape.size(), 0);
+    auto indexArr = std::make_shared<IntArray>();
+    for (int idx : indices) indexArr->elements.push_back(std::make_shared<int>(idx));
 
-            int finalValue;
+    switch(efficiency) {
+        case 0: {
+            Value elementVal = evaluateExpression(rhsNode, env);
+            std::shared_ptr<IntArray> rhsArr;
+
             if (std::holds_alternative<std::shared_ptr<IntArray>>(elementVal)) {
-                auto rhsArr = std::get<std::shared_ptr<IntArray>>(elementVal);
-                finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[subIndex % rhsArr->elements.size()];
-            } else {
-                finalValue = getIntValue(elementVal);
+                rhsArr = std::get<std::shared_ptr<IntArray>>(elementVal);
             }
 
-            resultArr->elements.push_back(std::make_shared<int>(finalValue));
+            for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
+                int finalValue;
+                if (rhsArr) {
+                    finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[flatIndex % rhsArr->elements.size()];
+                } else {
+                    finalValue = getIntValue(elementVal);
+                }
+
+                resultArr->elements.push_back(std::make_shared<int>(finalValue));
+            }
+            break;
+        }
+        case 1: {
+            for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
+                env->pushSelfRef(flatIndex);
+
+                Value elementVal = evaluateExpression(rhsNode, env);
+                int finalValue;
+                if (std::holds_alternative<std::shared_ptr<IntArray>>(elementVal)) {
+                    auto rhsArr = std::get<std::shared_ptr<IntArray>>(elementVal);
+                    finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[flatIndex % rhsArr->elements.size()];
+                } else {
+                    finalValue = getIntValue(elementVal);
+                }
+
+                resultArr->elements.push_back(std::make_shared<int>(finalValue));
+                env->popSelfRef();
+            }
+            break;
+        }
+        case 2: {
+            env->pushSelfRef(indexArr);
+            for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
+                Value elementVal = evaluateExpression(rhsNode, env);
+                int finalValue;
+                if (std::holds_alternative<std::shared_ptr<IntArray>>(elementVal)) {
+                    auto rhsArr = std::get<std::shared_ptr<IntArray>>(elementVal);
+                    finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[flatIndex % rhsArr->elements.size()];
+                } else {
+                    finalValue = getIntValue(elementVal);
+                }
+
+                resultArr->elements.push_back(std::make_shared<int>(finalValue));
+
+                for (int d = static_cast<int>(shape.size()) - 1; d >= 0; --d) {
+                    indices[d]++;
+                    *indexArr->elements[d] = indices[d];
+                    if (indices[d] < shape[d]) break;
+                    indices[d] = 0;
+                    *indexArr->elements[d] = 0;
+                }
+            }
+            env->popSelfRef();
         }
     }
 
@@ -162,26 +212,24 @@ Value Executor::handleAssignment(
             if (it == (*strPtr)->fields.end())
                 throw std::runtime_error("Struct does not have field: " + prop);
 
-            env->selfRef = std::make_shared<Value>(it->second);
+            env->pushSelfRef(it->second);
             Value val = evaluateExpression(node->children[1], env);
             it->second = val;
-            env->selfRef = nullptr;
+            env->popSelfRef();
             return val;
         }
 
         throw std::runtime_error("Left-hand side of assignment is not a struct or object");
     }
 
-    if (modify) {
-        env->selfRef = std::make_shared<Value>(env->get(node->strValue));
-    } else {
-        env->selfRef = nullptr;
-    }
+    if (modify) env->pushSelfRef(env->get(node->strValue));
 
     Value val = node->children.empty() ? Value(0) : evaluateExpression(node->children[0], env);
+
     if (modify) env->modify(node->strValue, val);
     else env->set(node->strValue, val);
-    env->selfRef = nullptr;
+
+    if (modify) env->popSelfRef();
     return val;
 }
 
@@ -241,6 +289,7 @@ Value Executor::evaluateReadProperty(const Value &target, const std::string &pro
         [&](const std::shared_ptr<BoolArray> &arr) { return readOnArray(arr, property); },
         [&](const std::shared_ptr<StringArray> &arr) { return readOnArray(arr, property); },
         [&](const std::shared_ptr<Struct> &str) { return readOnStruct(str, property); },
+        [&](const std::shared_ptr<ExportData> &exp) { return exp->getExportedValue(property); },
         [&](auto&) -> Value {
             throw std::runtime_error("Attempted READ on non-object");
         }
