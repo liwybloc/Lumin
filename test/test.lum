@@ -1,12 +1,19 @@
-import "monsterzeroultra";
-import "test2.lum" as math;
 import "outstream";
 
-fin main() -> nil {
+fin add(int x, int y, int z) -> int {
+    return x + y + z;
+}
+
+fin main() -> int {
 
     int x = 6;
     int y = 7;
 
-    println(math.add(x, y));
+    bool g = 62;
+
+    println(add(x, y, 3));
+    println(g);
+
+    return 0;
 
 }

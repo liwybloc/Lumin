@@ -8,10 +8,10 @@
 Executor::Executor(std::shared_ptr<ASTNode> root) : root(root) {
     globalEnv = std::make_shared<Environment>();
 
-    globalEnv->set("nil", Value(nullptr));
+    globalEnv->set("nil", TypedValue());
 }
 
-Value Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
     int efficiency = std::stoi(node->children[0]->strValue);
 
     std::vector<int> shape;
@@ -30,11 +30,11 @@ Value Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shar
 
     switch(efficiency) {
         case 0: {
-            Value elementVal = evaluateExpression(rhsNode, env);
+            TypedValue elementVal = evaluateExpression(rhsNode, env);
             std::shared_ptr<IntArray> rhsArr;
 
-            if (std::holds_alternative<std::shared_ptr<IntArray>>(elementVal)) {
-                rhsArr = std::get<std::shared_ptr<IntArray>>(elementVal);
+            if (elementVal.type.match(BaseType::ArrayInt)) {
+                rhsArr = elementVal.get<std::shared_ptr<IntArray>>();
             }
 
             for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
@@ -53,10 +53,10 @@ Value Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shar
             for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
                 env->pushSelfRef(flatIndex);
 
-                Value elementVal = evaluateExpression(rhsNode, env);
+                TypedValue elementVal = evaluateExpression(rhsNode, env);
                 int finalValue;
-                if (std::holds_alternative<std::shared_ptr<IntArray>>(elementVal)) {
-                    auto rhsArr = std::get<std::shared_ptr<IntArray>>(elementVal);
+                if (elementVal.type.match(BaseType::ArrayInt)) {
+                    auto rhsArr = elementVal.get<std::shared_ptr<IntArray>>();
                     finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[flatIndex % rhsArr->elements.size()];
                 } else {
                     finalValue = getIntValue(elementVal);
@@ -70,10 +70,10 @@ Value Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shar
         case 2: {
             env->pushSelfRef(indexArr);
             for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
-                Value elementVal = evaluateExpression(rhsNode, env);
+                TypedValue elementVal = evaluateExpression(rhsNode, env);
                 int finalValue;
-                if (std::holds_alternative<std::shared_ptr<IntArray>>(elementVal)) {
-                    auto rhsArr = std::get<std::shared_ptr<IntArray>>(elementVal);
+                if (elementVal.type.match(BaseType::ArrayInt)) {
+                    auto rhsArr = elementVal.get<std::shared_ptr<IntArray>>();
                     finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[flatIndex % rhsArr->elements.size()];
                 } else {
                     finalValue = getIntValue(elementVal);
@@ -93,8 +93,8 @@ Value Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shar
         }
     }
 
-    env->set(node->strValue, Value(resultArr));
-    return Value(resultArr);
+    env->set(node->strValue, TypedValue(resultArr));
+    return TypedValue(resultArr);
 }
 
 void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
@@ -112,7 +112,7 @@ void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, std::share
     env->setType(structName, _struct);
 }
 
-Value Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
     std::string structName = node->children[0]->strValue;
     auto structType = env->getType(structName);
     if (!structType) throw std::runtime_error("Struct not found: " + structName);
@@ -120,10 +120,10 @@ Value Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, std::share
     auto rhsNode = node->children[1];
 
     if (rhsNode->type != ASTNode::Type::BLOCK) {
-        Value val = evaluateExpression(rhsNode, env);
+        TypedValue val = evaluateExpression(rhsNode, env);
 
-        if (!std::holds_alternative<std::shared_ptr<Struct>>(val)) {
-            throw std::runtime_error("RHS expression does not evaluate to a struct for direct assignment: " + structName);
+        if (!val.type.match(BaseType::Struct) || val.get<std::shared_ptr<Struct>>()->name != structName) {
+            throw std::runtime_error("RHS expression does not evaluate to a struct (or an incorrect one) for direct assignment: " + structName);
         }
 
         env->set(node->strValue, val);
@@ -135,7 +135,7 @@ Value Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, std::share
 
     for (auto &child : rhsNode->children) {
         std::string fieldName;
-        Value evaluatedValue;
+        TypedValue evaluatedValue;
 
         if (child->type == ASTNode::Type::PRIMITIVE_ASSIGNMENT) {
             fieldName = child->strValue;
@@ -155,39 +155,27 @@ Value Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, std::share
         newStruct->addField(fieldName, evaluatedValue);
     }
 
-    Value val = Value(newStruct);
+    TypedValue val = TypedValue(newStruct);
     env->set(node->strValue, val);
     return val;
 }
 
-
-int Executor::getIntValue(const Value &val) {
-    return extract<int>(
-        val,
-        [](int v) { return v; },
-        [](bool b) { return b ? 1 : 0; }
-    );
+int Executor::getIntValue(const TypedValue &val) {
+    if(!val.type.match(BaseType::Int)) throw std::runtime_error("Expected integer value");
+    return val.get<int>();
 }
 
-bool Executor::getBoolValue(const Value &val) {
-    return extract<bool>(
-        val,
-        [](bool b) { return b; },
-        [](int i) { return i != 0; },
-        [](const std::string &s) { return !s.empty(); }
-    );
+bool Executor::getBoolValue(const TypedValue &val) {
+    if(!val.type.match(BaseType::Bool)) throw std::runtime_error("Expected boolean value");
+    return val.get<bool>();
 }
 
-std::string Executor::getStringValue(const Value &val) {
-    return extract<std::string>(
-        val,
-        [](const std::string &s) { return s; },
-        [](int i) { return std::to_string(i); },
-        [](bool b) { return std::string(b ? "true" : "false"); }
-    );
+std::string Executor::getStringValue(const TypedValue &val) {
+    if(!val.type.match(BaseType::String)) throw std::runtime_error("Expected string value");
+    return val.get<std::string>();
 }
 
-Value Executor::primitiveValue(const Primitive val) {
+TypedValue Executor::primitiveValue(const Primitive val) {
     switch (val) {
         case Primitive::INT: return 0;
         case Primitive::STRING: return "";
@@ -196,35 +184,39 @@ Value Executor::primitiveValue(const Primitive val) {
     }
 }
 
-Value Executor::handleAssignment(
+TypedValue Executor::handleAssignment(
     std::shared_ptr<ASTNode> node,
     std::shared_ptr<Environment> env,
+    Type type,
     bool modify
 ) {
     if (!node->children.empty() && node->children[0]->type == ASTNode::Type::READ) {
         auto readNode = node->children[0];
-        Value parentVal = evaluateExpression(readNode->children[0], env);
+        TypedValue parentVal = evaluateExpression(readNode->children[0], env);
 
-        if (auto strPtr = std::get_if<std::shared_ptr<Struct>>(&parentVal)) {
-            const std::string &prop = readNode->children[1]->strValue;
-            auto it = std::find_if((*strPtr)->fields.begin(), (*strPtr)->fields.end(),
-                                   [&prop](const auto &pair){ return pair.first == prop; });
-            if (it == (*strPtr)->fields.end())
-                throw std::runtime_error("Struct does not have field: " + prop);
+        if(!parentVal.type.match(BaseType::Struct))
+            throw std::runtime_error("Left-hand side of assignment is not a struct or object");
 
-            env->pushSelfRef(it->second);
-            Value val = evaluateExpression(node->children[1], env);
-            it->second = val;
-            env->popSelfRef();
-            return val;
-        }
+        auto strPtr = parentVal.get<std::shared_ptr<Struct>>();
 
-        throw std::runtime_error("Left-hand side of assignment is not a struct or object");
+        const std::string &prop = readNode->children[1]->strValue;
+        auto it = std::find_if(strPtr->fields.begin(), strPtr->fields.end(),
+                                [&prop](const auto &pair){ return pair.first == prop; });
+        if (it == strPtr->fields.end())
+            throw std::runtime_error("Struct does not have field: " + prop);
+
+        env->pushSelfRef(it->second);
+        TypedValue val = evaluateExpression(node->children[1], env);
+        if(!val.type.match(it->second.type)) throw std::runtime_error("Incompatible types for assignment");
+        it->second = val;
+        env->popSelfRef();
+        return val;
     }
 
     if (modify) env->pushSelfRef(env->get(node->strValue));
 
-    Value val = node->children.empty() ? Value(0) : evaluateExpression(node->children[0], env);
+    TypedValue val = node->children.empty() ? TypedValue(0) : evaluateExpression(node->children[0], env);
+    if(!val.type.match(type)) throw std::runtime_error("Incompatible types for assignment");
 
     if (modify) env->modify(node->strValue, val);
     else env->set(node->strValue, val);
@@ -234,12 +226,12 @@ Value Executor::handleAssignment(
 }
 
 template<typename T>
-Value readOnArray(std::shared_ptr<T> arr, const std::string &property) {
-    if (property == "length") return Value(static_cast<int>(arr->elements.size()));
+TypedValue readOnArray(std::shared_ptr<T> arr, const std::string &property) {
+    if (property == "length") return TypedValue(static_cast<int>(arr->elements.size()));
     throw std::runtime_error("Unknown array property: " + property);
 }
 
-Value readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property) {
+TypedValue readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property) {
     auto it = std::find_if(str->fields.begin(), str->fields.end(),
         [&property](const auto& pair){ return pair.first == property; });
 
@@ -250,7 +242,7 @@ Value readOnStruct(const std::shared_ptr<Struct> &str, const std::string &proper
     return it->second;
 }
 
-Value Executor::handleReadAssignment(
+TypedValue Executor::handleReadAssignment(
     std::shared_ptr<ASTNode> readNode,
     std::shared_ptr<Environment> env,
     std::shared_ptr<ASTNode> valNode
@@ -258,40 +250,54 @@ Value Executor::handleReadAssignment(
     if (readNode->type != ASTNode::Type::READ)
         throw std::runtime_error("Expected READ node for member assignment");
 
-    Value parentVal = evaluateExpression(readNode->children[0], env);
+    TypedValue parentVal = evaluateExpression(readNode->children[0], env);
     const std::string &prop = readNode->children[1]->strValue;
-    Value val = evaluateExpression(valNode, env);
+    TypedValue val = evaluateExpression(valNode, env);
 
-    return std::visit(overloaded{
-        [&](const std::shared_ptr<Struct> &str) -> Value {
+    switch(val.type.kind) {
+        case BaseType::Struct: {
+            auto str = val.get<std::shared_ptr<Struct>>();
             auto it = std::find_if(str->fields.begin(), str->fields.end(),
                 [&prop](const auto &pair){ return pair.first == prop; });
             if (it == str->fields.end())
                 throw std::runtime_error("Struct does not have field: " + prop);
 
             it->second = val;
-            return val;
-        },
-        [&](const std::shared_ptr<IntArray> &arr) -> Value {
-            if (prop == "length")
-                throw std::runtime_error("Cannot assign to array length");
-            throw std::runtime_error("Unsupported array property assignment: " + prop);
-        },
-        [&](auto&) -> Value {
-            throw std::runtime_error("Left-hand side of assignment is not a struct or object");
         }
-    }, parentVal);
+        case BaseType::ArrayBool:
+        case BaseType::ArrayString:
+        case BaseType::ArrayInt: {
+            if(prop == "length") throw std::runtime_error("Cannot modify array length");
+            throw std::runtime_error("Cannot modify array elements");
+        }
+    }
+
+    return val;
 }
 
-Value Executor::evaluateReadProperty(const Value &target, const std::string &property) {
-    return std::visit(overloaded{
-        [&](const std::shared_ptr<IntArray> &arr) { return readOnArray(arr, property); },
-        [&](const std::shared_ptr<BoolArray> &arr) { return readOnArray(arr, property); },
-        [&](const std::shared_ptr<StringArray> &arr) { return readOnArray(arr, property); },
-        [&](const std::shared_ptr<Struct> &str) { return readOnStruct(str, property); },
-        [&](const std::shared_ptr<ExportData> &exp) { return exp->getExportedValue(property); },
-        [&](auto&) -> Value {
-            throw std::runtime_error("Attempted READ on non-object");
+TypedValue Executor::evaluateReadProperty(const TypedValue &target, const std::string &property) {
+    switch(target.type.kind) {
+        case BaseType::Struct: {
+            auto str = target.get<std::shared_ptr<Struct>>();
+            return readOnStruct(str, property);
         }
-    }, target);
+        case BaseType::ArrayInt: {
+            auto arr = target.get<std::shared_ptr<IntArray>>();
+            return readOnArray(arr, property);
+        }
+        case BaseType::ArrayBool: {
+            auto arr = target.get<std::shared_ptr<BoolArray>>();
+            return readOnArray(arr, property);
+        }
+        case BaseType::ArrayString: {
+            auto arr = target.get<std::shared_ptr<StringArray>>();
+            return readOnArray(arr, property);
+        }
+        case BaseType::ExportData: {
+            auto exp = target.get<std::shared_ptr<ExportData>>();
+            return exp->getExportedValue(property);
+        }
+        default:
+            throw std::runtime_error("Attempted READ on non-object");
+    }
 }

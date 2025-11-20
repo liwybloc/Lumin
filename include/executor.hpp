@@ -15,15 +15,20 @@
 #include <vector>
 #include <any>
 #include <algorithm>
+#include <cstddef>
 
-struct Function;
+enum class BaseType { Int, Bool, String, ArrayInt, ArrayBool, ArrayString, Function, Struct, ExportData, NIL };
+
+struct StructType;
 struct Struct;
+struct Function;
 struct ExportData;
+struct TypedValue;
+struct Type;
 
 template<typename T>
 struct Array {
     using value_type = T;
-
     std::vector<std::shared_ptr<T>> elements;
 
     void add(const std::shared_ptr<T>& element) {
@@ -35,8 +40,6 @@ using IntArray    = Array<int>;
 using BoolArray   = Array<bool>;
 using StringArray = Array<std::string>;
 
-using Type = std::variant<Primitive, std::string>;
-
 using Value = std::variant<int, bool, std::nullptr_t, std::string,
                            std::shared_ptr<IntArray>,
                            std::shared_ptr<BoolArray>,
@@ -45,14 +48,82 @@ using Value = std::variant<int, bool, std::nullptr_t, std::string,
                            std::shared_ptr<Struct>,
                            std::shared_ptr<ExportData>>;
 
-struct Function {
-    std::function<std::shared_ptr<Value>(const std::vector<std::shared_ptr<Value>>&)> fn;
+struct Type {
+    BaseType kind;
+    std::string customName;
+
+    Type(Primitive prim) {
+        switch (prim) {
+            case Primitive::INT: kind = BaseType::Int; break;
+            case Primitive::BOOL: kind = BaseType::Bool; break;
+            case Primitive::STRING: kind = BaseType::String; break;
+            default: throw std::runtime_error("Invalid primitive type - " + std::to_string(static_cast<int>(prim)));
+        }
+    }
+
+    Type(const std::string &name) : kind(BaseType::Struct), customName(name) {}
+    Type(const BaseType &base) : kind(base) {}
+
+    bool match(BaseType base) const {
+        return kind == base;
+    }
+    bool match(Type otherType) const {
+        return kind == otherType.kind && customName == otherType.customName;
+    }
+
+    std::string toString() const {
+        switch(kind) {
+            case BaseType::Int: return "int";
+            case BaseType::Bool: return "bool";
+            case BaseType::String: return "string";
+            case BaseType::ArrayInt: return "array<int>";
+            case BaseType::ArrayBool: return "array<bool>";
+            case BaseType::ArrayString: return "array<string>";
+            case BaseType::Function: return "function";
+            case BaseType::Struct: return "struct: " + customName;
+            case BaseType::ExportData: return "exportData";
+            case BaseType::NIL: return "nil";
+        }
+        return "unknown";
+    }
 };
 
-struct StructType {
-    std::string name;
-    StructType(const std::string &name) : name(name) {}
-    std::vector<std::pair<std::string, Type>> fields; 
+struct TypedValue {
+    Value value;
+    Type type;
+
+    TypedValue(std::shared_ptr<ExportData> ed) : value(ed), type(Type(BaseType::ExportData)) {}
+    TypedValue(std::shared_ptr<Function> fn) : value(fn), type(Type(BaseType::Function)) {}
+    TypedValue(Value value, Type type) : value(value), type(type) {}
+    TypedValue(int value) : value(value), type(Type(Primitive::INT)) {}
+    TypedValue(bool value) : value(value), type(Type(Primitive::BOOL)) {}
+    TypedValue(const std::string &value) : value(value), type(Type(Primitive::STRING)) {}
+    TypedValue(const std::shared_ptr<IntArray> arr) : value(arr), type(Type(BaseType::ArrayInt)) {}
+    TypedValue(const std::shared_ptr<BoolArray> arr) : value(arr), type(Type(BaseType::ArrayBool)) {}
+    TypedValue(const std::shared_ptr<StringArray> arr) : value(arr), type(Type(BaseType::ArrayString)) {}
+    TypedValue(const std::shared_ptr<Struct> fn) : value(fn), type(Type(BaseType::Struct)) {}
+    explicit TypedValue() : value(nullptr), type(Type(BaseType::NIL)) {}
+
+    template <typename T>
+    T get() const {
+        return std::get<T>(value);
+    }
+
+    template <typename T>
+    std::shared_ptr<T> point() const {
+        return get<std::shared_ptr<T>>();
+    }
+};
+
+struct TypedIdentifier {
+    std::string ident;
+    Type type;
+
+    TypedIdentifier(std::string &ident, Type type) : ident(ident), type(type) {}
+};
+
+struct Function {
+    std::function<std::shared_ptr<TypedValue>(const std::vector<std::shared_ptr<TypedValue>>&)> fn;
 };
 
 struct Struct {
@@ -61,13 +132,13 @@ struct Struct {
 
     Struct(const std::string &name, std::shared_ptr<StructType> type) : name(name), type(type) {}
 
-    std::vector<std::pair<std::string, Value>> fields;
+    std::vector<std::pair<std::string, TypedValue>> fields;
     std::vector<std::pair<std::string, std::any>> hiddenFields;
 private:
     std::unordered_map<std::string, size_t> fieldIndexMap;
 
 public:
-    void addField(const std::string &fieldName, const Value &value) {
+    void addField(const std::string &fieldName, const TypedValue &value) {
         fieldIndexMap[fieldName] = fields.size();
         fields.emplace_back(fieldName, value);
     }
@@ -76,7 +147,7 @@ public:
         hiddenFields.emplace_back(fieldName, value);
     }
 
-    Value& getField(const std::string &fieldName) {
+    TypedValue& getField(const std::string &fieldName) {
         auto it = fieldIndexMap.find(fieldName);
         if (it == fieldIndexMap.end()) throw std::runtime_error("Field not found: " + fieldName);
         return fields[it->second].second;
@@ -84,42 +155,51 @@ public:
 
     std::any& getHiddenField(const std::string &fieldName) {
         auto it = std::find_if(hiddenFields.begin(), hiddenFields.end(),
-                                 [&fieldName](const auto &pair){ return pair.first == fieldName; });
+                               [&fieldName](const auto &pair){ return pair.first == fieldName; });
         if (it == hiddenFields.end()) throw std::runtime_error("Hidden field not found: " + fieldName);
         return it->second;
     }
 
-    void setField(const std::string &fieldName, const Value &value) {
+    void setField(const std::string &fieldName, const TypedValue &value) {
         auto it = fieldIndexMap.find(fieldName);
         if (it == fieldIndexMap.end()) throw std::runtime_error("Field not found: " + fieldName);
         fields[it->second].second = value;
     }
 };
 
+struct StructType {
+    std::string name;
+    StructType(const std::string &name) : name(name) {}
+    std::vector<std::pair<std::string, Type>> fields;
+    
+    bool match(Type type) const {
+        return type.kind == BaseType::Struct && type.customName == name;
+    }
+};
 
 struct ReturnValue {
     bool hasReturn;
-    Value value;
-    ReturnValue() : hasReturn(false), value(Value(nullptr)) {}
-    ReturnValue(const Value &v) : hasReturn(true), value(v) {}
+    TypedValue value;
+    ReturnValue() : hasReturn(false), value(TypedValue()) {}
+    ReturnValue(const TypedValue &v) : hasReturn(true), value(v) {}
 };
 
 class Environment {
 public:
     explicit Environment(std::shared_ptr<Environment> parent = nullptr) : parent(parent) {}
 
-    std::stack<Value> selfRefStack;
+    std::stack<TypedValue> selfRefStack;
 
-    void set(const std::string &name, const Value &val) { variables[name] = val; }
+    void set(const std::string &name, const TypedValue &val) { variables[name] = val; }
     void setType(const std::string &name, const std::shared_ptr<StructType> &type) { structTypes[name] = type; }
 
-    void pushSelfRef(const Value &val) { selfRefStack.push(val); }
-    void popSelfRef() { 
-        if (!selfRefStack.empty()) selfRefStack.pop(); 
+    void pushSelfRef(const TypedValue &val) { selfRefStack.push(val); }
+    void popSelfRef() {
+        if (!selfRefStack.empty()) selfRefStack.pop();
         else throw std::runtime_error("Attempted to pop empty selfRef stack");
     }
-    Value currentSelfRef() const { 
-        if (!selfRefStack.empty()) return selfRefStack.top(); 
+    TypedValue currentSelfRef() const {
+        if (!selfRefStack.empty()) return selfRefStack.top();
         throw std::runtime_error("selfRef stack is empty");
     }
     bool hasSelfRef() const { return !selfRefStack.empty(); }
@@ -130,7 +210,7 @@ public:
         return nullptr;
     }
 
-    void modify(const std::string &name, const Value &val) {
+    void modify(const std::string &name, const TypedValue &val) {
         if (variables.find(name) != variables.end()) variables[name] = val;
         else if (parent) return parent->modify(name, val);
         else variables[name] = val;
@@ -138,22 +218,22 @@ public:
 
     bool has(const std::string &name) const { return variables.find(name) != variables.end(); }
 
-    Value get(const std::string &name) {
+    TypedValue get(const std::string &name) {
         if (variables.find(name) != variables.end()) return variables[name];
         if (parent) return parent->get(name);
         throw std::runtime_error("Undefined variable: " + name);
     }
 
-private:
-    std::unordered_map<std::string, Value> variables;
-    std::unordered_map<std::string, std::shared_ptr<StructType>> structTypes;
     std::shared_ptr<Environment> parent;
+
+private:
+    std::unordered_map<std::string, TypedValue> variables;
+    std::unordered_map<std::string, std::shared_ptr<StructType>> structTypes;
 };
 
 using ENV = std::shared_ptr<Environment>;
 
 struct ExportData {
-
     ExportData(const std::string &fileName) : fileName(fileName) {}
 
     std::unordered_map<std::string, std::pair<ENV, std::string>> exports;
@@ -163,7 +243,7 @@ struct ExportData {
         exports[name] = { env, name };
     }
 
-    Value getExportedValue(const std::string &name) {
+    TypedValue getExportedValue(const std::string &name) {
         auto it = exports.find(name);
         if (it == exports.end()) throw std::runtime_error("Export not found: " + name);
         return it->second.first->get(it->second.second);
@@ -173,7 +253,7 @@ struct ExportData {
 class Executor {
 public:
     explicit Executor(std::shared_ptr<ASTNode> root);
-    Value run();
+    TypedValue run();
 
     template <typename T, typename... Cases>
     T extract(const Value &val, Cases &&...cases) {
@@ -188,7 +268,6 @@ public:
                                 const std::shared_ptr<ASTNode> &indicesNode,
                                 std::shared_ptr<Environment> env) {
         std::vector<int> indices;
-        int selfRefValue = 0;
 
         for (const auto &idxNode : indicesNode->children) {
             if (idxNode->type == ASTNode::Type::RANGE) {
@@ -211,7 +290,7 @@ public:
     }
 
     template <typename T, typename ArrayType>
-    Value handleArrayAccess(const std::shared_ptr<ArrayType> &arr, std::shared_ptr<ASTNode> indicesNode, std::shared_ptr<Environment> env);
+    TypedValue handleArrayAccess(const std::shared_ptr<ArrayType> &arr, std::shared_ptr<ASTNode> indicesNode, std::shared_ptr<Environment> env);
 
     template <typename T, typename ArrayType>
     void handleArrayAssignment(const std::shared_ptr<ArrayType> &arr,
@@ -220,23 +299,23 @@ public:
                                std::shared_ptr<ASTNode> valNode);
 
     template <typename T, typename ArrayType>
-    Value processArrayOperation(const std::shared_ptr<ArrayType> &arr,
+    TypedValue processArrayOperation(const std::shared_ptr<ArrayType> &arr,
                                 std::shared_ptr<ASTNode> indicesNode,
                                 std::shared_ptr<Environment> env,
                                 std::optional<std::shared_ptr<ASTNode>> valNode);
 
-    int getIntValue(const Value &val);
-    bool getBoolValue(const Value &val);
-    std::string getStringValue(const Value &val);
+    int getIntValue(const TypedValue &val);
+    bool getBoolValue(const TypedValue &val);
+    std::string getStringValue(const TypedValue &val);
 
     void printStruct(const std::shared_ptr<Struct> &_struct);
     template<typename T, typename ArrayType>
     void printArray(const std::shared_ptr<ArrayType> &arr);
     template <typename T, typename ArrayType>
-    Value arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices);
+    TypedValue arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices);
     template <typename T, typename ArrayType>
-    Value arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, std::shared_ptr<Environment> env);
-    void printValue(const Value &val);
+    TypedValue arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, std::shared_ptr<Environment> env);
+    void printValue(const TypedValue &val);
 
 private:
     std::shared_ptr<ASTNode> root;
@@ -246,9 +325,9 @@ private:
     std::unordered_map<std::string, std::shared_ptr<ASTNode>> pragmas;
     std::vector<std::string> handlingModules;
 
-    Value handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+    TypedValue handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
     void handleStructDeclaration(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
-    Value handleStructAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+    TypedValue handleStructAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
 
     void handleImports(std::vector<std::shared_ptr<ASTNode>> children, ENV env);
 
@@ -258,12 +337,12 @@ private:
 
     ReturnValue executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
     ReturnValue executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, std::shared_ptr<Environment> env);
-    std::shared_ptr<Function> createFunction(const std::vector<std::string> &params, std::shared_ptr<ASTNode> body, std::shared_ptr<Environment> closureEnv);
-    Value handleReadAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, std::shared_ptr<ASTNode> valNode);
-    Value evaluateReadProperty(const Value &target, const std::string &property);
-    Value handleAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, bool modify);
-    Value primitiveValue(const Primitive val);
-    Value evaluateExpression(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+    TypedValue handleReadAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, std::shared_ptr<ASTNode> valNode);
+    TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property);
+    TypedValue primitiveValue(const Primitive val);
+    TypedValue handleAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, Type type, bool modify);
+    std::shared_ptr<Function> createFunction(const std::vector<TypedIdentifier> &params, std::shared_ptr<ASTNode> body, Type returnType, std::shared_ptr<Environment> closureEnv);
+    TypedValue evaluateExpression(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
 };
 
 #endif

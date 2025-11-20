@@ -1,3 +1,0 @@
-export fin add(a, b) -> int {
-    return a + b;
-}

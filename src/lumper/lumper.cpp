@@ -104,6 +104,7 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
         case ASTNode::Type::BOOL:
         case ASTNode::Type::STRING:
         case ASTNode::Type::SIZED_ARRAY_DECLARE:
+        case ASTNode::Type::FUNCTION:
             writeByte(out, uint8_t(node->primitiveValue));
             break;
         default:
@@ -150,6 +151,7 @@ static std::shared_ptr<ASTNode> decodeNode(std::istream &in, uint32_t depth) {
         case ASTNode::Type::BOOL:
         case ASTNode::Type::STRING:
         case ASTNode::Type::SIZED_ARRAY_DECLARE:
+        case ASTNode::Type::FUNCTION:
             n->primitiveValue = Primitive(readByte(in));
             break;
         default:

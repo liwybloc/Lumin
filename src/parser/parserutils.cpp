@@ -73,9 +73,19 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
                 node->strValue = p->expect(Token::Type::IDENTIFIER, "Expected identifier after 'fin'", true).value;
                 p->expect(Token::Type::LPAREN, "Expected '(' after function name", true);
 
-                while (p->match(Token::Type::IDENTIFIER)) {
-                    auto param = makeNode(ASTNode::Type::IDENTIFIER);
-                    param->strValue = p->consume().value;
+                while (p->match(Token::Type::IDENTIFIER) || p->match(Token::Type::PRIMITIVE)) {
+                    auto param = makeNode(ASTNode::Type::STRING);
+                    
+                    std::shared_ptr<ASTNode> typeNode = makeTypedNode(ASTNode::Type::STRING, 1);
+                    if(p->match(Token::Type::PRIMITIVE)) {
+                        param->primitiveValue = p->consume().primitiveValue;
+                    } else {
+                        typeNode->strValue = p->consume().value;
+                    }
+                    param->children.push_back(typeNode);
+
+                    param->strValue = p->expect(Token::Type::IDENTIFIER, "Expected identifier after parameter", true).value;
+                    
                     node->children.push_back(param);
                     if (p->match(Token::Type::COMMA)) p->consume();
                 }
@@ -287,11 +297,14 @@ std::string astToString(const std::shared_ptr<ASTNode> &node, int indent) {
     if (!node->strValue.empty()) {
         ss << "{\"" << node->strValue << "\"}";
     }
-    if (node->type == ASTNode::Type::NUMBER) {
+    if (node->primitiveValue != Primitive::NONE) {
         ss << "{" << static_cast<int>(node->primitiveValue) << "}";
     }
     if (node->type == ASTNode::Type::BINARY_OP || node->type == ASTNode::Type::UNARY_OP) {
         ss << "{" << static_cast<int>(node->binopValue) << "}";
+    }
+    if (node->type == ASTNode::Type::FUNCTION) {
+        ss << "{" << node->retType << "}";
     }
     if (!node->children.empty()) {
         ss << ".[\n";
