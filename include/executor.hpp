@@ -335,7 +335,10 @@ private:
 
     void executePragmas(std::vector<std::shared_ptr<ASTNode>> children, std::shared_ptr<Environment> env);
 
-    ReturnValue executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+    ReturnValue executeFunctionDefinition(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, bool extractSignature);
+
+    ReturnValue executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, bool extraBit = false);
+
     ReturnValue executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, std::shared_ptr<Environment> env);
     TypedValue handleReadAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, std::shared_ptr<ASTNode> valNode);
     TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property);

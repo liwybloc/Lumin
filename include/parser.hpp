@@ -37,6 +37,7 @@ struct ASTNode {
         RETURN_STATEMENT,
 
         FUNCTION,
+        NATIVE_STATEMENT,
         
         FOR_STATEMENT,
         ARRAY_LITERAL,

@@ -1,18 +1,15 @@
 import "outstream";
 
-fin add(int x, int y, int z) -> int {
-    return x + y + z;
-}
+native fin int add(int x, int y, int z);
 
 fin main() -> int {
 
     int x = 6;
     int y = 7;
 
-    bool g = 62;
+    bool g = true;
 
     println(add(x, y, 3));
-    println(g);
 
     return 0;
 

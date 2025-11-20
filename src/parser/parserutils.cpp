@@ -66,44 +66,84 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
             }
         },
         {
+            "native",
+            [](Parser* p, int depth) {
+                if(!p->match(Token::Type::KEYWORD) || p->peek().value != "fin") {
+                    p->error("Expected 'fin' keyword after 'native'");
+                }
+                auto func = p->parseStatement(depth);
+
+                if(func->children.back()->children.size() != 0) {
+                    p->error("Native functions cannot have a body");
+                }
+
+                auto nativeNode = makeNode(ASTNode::Type::NATIVE_STATEMENT);
+                nativeNode->children.push_back(func);
+                return nativeNode;
+            }
+        },
+        {
             "fin",
             [](Parser* p, int depth) {
                 auto node = makeNode(ASTNode::Type::FUNCTION);
                 node->valueType = 1;
-                node->strValue = p->expect(Token::Type::IDENTIFIER, "Expected identifier after 'fin'", true).value;
+
+                Token first = p->peek();
+                Token second = p->peek(1);
+
+                bool alt = (first.type == Token::Type::PRIMITIVE || first.type == Token::Type::IDENTIFIER)
+                        && second.type == Token::Type::IDENTIFIER;
+
+                if (alt) {
+                    Token t = p->consume();
+                    Token name = p->consume();
+                    node->retType = t.value;
+                    if (t.type == Token::Type::PRIMITIVE) node->primitiveValue = t.primitiveValue;
+                    node->strValue = name.value;
+                } else {
+                    node->strValue = p->expect(Token::Type::IDENTIFIER, "Expected identifier after 'fin'", true).value;
+                }
+
                 p->expect(Token::Type::LPAREN, "Expected '(' after function name", true);
 
                 while (p->match(Token::Type::IDENTIFIER) || p->match(Token::Type::PRIMITIVE)) {
                     auto param = makeNode(ASTNode::Type::STRING);
-                    
                     std::shared_ptr<ASTNode> typeNode = makeTypedNode(ASTNode::Type::STRING, 1);
-                    if(p->match(Token::Type::PRIMITIVE)) {
+
+                    if (p->match(Token::Type::PRIMITIVE)) {
                         param->primitiveValue = p->consume().primitiveValue;
                     } else {
                         typeNode->strValue = p->consume().value;
                     }
                     param->children.push_back(typeNode);
-
                     param->strValue = p->expect(Token::Type::IDENTIFIER, "Expected identifier after parameter", true).value;
-                    
+
                     node->children.push_back(param);
                     if (p->match(Token::Type::COMMA)) p->consume();
                 }
-
                 p->expect(Token::Type::RPAREN, "Expected ')' after function parameters", true);
-                p->expect(Token::Type::ARROW, "Expected '->' after function parameters", true);
 
-                const Token& t = p->consume();
-                if (!(t.type == Token::Type::PRIMITIVE || t.type == Token::Type::IDENTIFIER))
-                    p->error("Expected type after arrow");
+                if (!alt) {
+                    p->expect(Token::Type::ARROW, "Expected '->' after function parameters", true);
 
-                node->retType = t.value;
-                if (t.type == Token::Type::PRIMITIVE) node->primitiveValue = t.primitiveValue;
+                    Token t = p->consume();
+                    if (!(t.type == Token::Type::PRIMITIVE || t.type == Token::Type::IDENTIFIER))
+                        p->error("Expected type after arrow");
+
+                    node->retType = t.value;
+                    if (t.type == Token::Type::PRIMITIVE) node->primitiveValue = t.primitiveValue;
+                }
+
+                if(p->match(Token::Type::SEMICOLON)) {
+                    node->children.push_back(makeNode(ASTNode::Type::BLOCK));
+                    return node;
+                }
 
                 if (p->match(Token::Type::LBRACE))
                     node->children.push_back(p->parseBlock(depth + 1));
                 else
                     node->children.push_back(p->parseStatement(depth + 1));
+
                 return node;
             }
         },

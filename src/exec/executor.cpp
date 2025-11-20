@@ -113,7 +113,43 @@ void Executor::executePragmas(std::vector<std::shared_ptr<ASTNode>> children, st
     executePragma(children.back(), env);
 }
 
-ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+ReturnValue Executor::executeFunctionDefinition(
+        std::shared_ptr<ASTNode> node,
+        std::shared_ptr<Environment> env,
+        bool extractSignature)
+{
+    std::vector<TypedIdentifier> params;
+    for (size_t i = 0; i < node->children.size() - 1; ++i) {
+        auto c = node->children[i];
+        auto c0 = c->children[0];
+        auto primVal = c0->primitiveValue;
+        auto strVal = c0->strValue;
+        params.push_back({ c->strValue, primVal == Primitive::NONE ? Type(strVal)
+                                                                   : Type(primVal) });
+    }
+
+    Type retType =
+        node->primitiveValue == Primitive::NONE
+            ? (node->retType == "nil" ? Type(BaseType::NIL) : Type(node->retType))
+            : Type(node->primitiveValue);
+
+    if (!extractSignature) {
+        env->set(
+            node->strValue,
+            createFunction(params, node->children.back(), retType, env)
+        );
+        return {};
+    }
+
+    ReturnValue r;
+    r.special = std::make_any<std::pair<std::vector<TypedIdentifier>, Type>>(
+        std::make_pair(params, retType)
+    );
+    return r;
+}
+
+
+ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, bool extraBit) {
     switch (node->type) {
         case ASTNode::Type::PROGRAM: executePragmas(node->children, env); return {};
         case ASTNode::Type::BLOCK: return executeBlock(node->children, std::make_shared<Environment>(env));
@@ -154,8 +190,17 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr
                 params.push_back({ c->strValue, primVal == Primitive::NONE ? Type(strVal) : Type(primVal) });
             }
             Type retType = node->primitiveValue == Primitive::NONE ? node->retType == "nil" ? Type(BaseType::NIL) : Type(node->retType) : Type(node->primitiveValue);
-            env->set(node->strValue, createFunction(params, node->children.back(), retType, env));
-            return {};
+            if(!extraBit) {
+                env->set(node->strValue, createFunction(params, node->children.back(), retType, env));
+                return {};
+            }
+            ReturnValue ret{};
+            ret.special = std::make_shared<std::any>(std::make_pair(params, retType));
+            return ret;
+        }
+        case ASTNode::Type::NATIVE_STATEMENT: {
+            auto funcData = std::any_cast<std::pair<std::vector<TypedIdentifier>, Type>>(executeNode(node->children[0], env, true).special);
+            
         }
         default:
             return evaluateExpression(node, env);
