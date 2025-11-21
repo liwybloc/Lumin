@@ -1,0 +1,12 @@
+link "outstream.dll";
+
+native fin _print(string message) -> nil;
+
+export fin println(string message) {
+    print(message);
+    print("\n");
+}
+
+export fin printf(string format, string ...args) {
+    
+}

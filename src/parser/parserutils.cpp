@@ -116,6 +116,13 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
                         typeNode->strValue = p->consume().value;
                     }
                     param->children.push_back(typeNode);
+
+                    if(p->matchMultiple(Token::Type::READ, 3)) {
+                        p->consume(3);
+                        // signifier
+                        param->children.push_back(makeNode(ASTNode::Type::ARRAY_ASSIGN));
+                    }
+
                     param->strValue = p->expect(Token::Type::IDENTIFIER, "Expected identifier after parameter", true).value;
 
                     node->children.push_back(param);
@@ -135,6 +142,7 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
                 }
 
                 if(p->match(Token::Type::SEMICOLON)) {
+                    p->consume();
                     node->children.push_back(makeNode(ASTNode::Type::BLOCK));
                     return node;
                 }
@@ -242,6 +250,15 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
             [](Parser* p, int depth) {
                 auto node = makeTypedNode(ASTNode::Type::BOOL, 1);
                 node->strValue = "0";
+                return node;
+            }
+        },
+        {
+            "link",
+            [](Parser* p, int depth) {
+                if(depth != 0)
+                    throw std::runtime_error("Cannot link to dll outside of top-level");
+                auto node = makeTypedNode(ASTNode::Type::STRING, 1);
                 return node;
             }
         }

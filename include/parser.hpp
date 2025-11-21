@@ -117,8 +117,9 @@ private:
     KWMAP kwMap;
 
     const Token &peek(size_t n = 0) const;
-    const Token &consume();
+    const Token &consume(int amount = 1);
     bool match(Token::Type type, int offset = 0);
+    bool matchMultiple(Token::Type type, int amount);
     Token expectMultiple(const std::vector<Token::Type> &types, const std::string &err);
     Token expect(Token::Type type, const std::string &err, bool doConsume = true);
 

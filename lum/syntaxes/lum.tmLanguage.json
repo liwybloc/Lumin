@@ -7,10 +7,10 @@
     },
     {
       "name": "keyword.control.lum",
-      "match": "\\b(fin|return|if|else|for|while|nil|import|export|as|native)\\b|#\\w+"
+      "match": "\\b(fin|return|if|else|for|while|nil|import|export|as|native|throws|throw|link)\\b|#\\w+"
     },
     {
-      "begin": "\\bstruct\\b",
+      "begin": "\\b(struct|throws|throw)\\b",
       "beginCaptures": {
         "0": { "name": "storage.type.lum" }
       },
@@ -27,10 +27,6 @@
     {
       "name": "entity.name.type.struct.lum",
       "match": "\\b(?!int|float|bool|char|struct)[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*)"
-    },
-    {
-      "name": "support.function.builtin.lum",
-      "match": "\\b(print|println|printf)\\b"
     },
     {
       "name": "constant.numeric.lum",

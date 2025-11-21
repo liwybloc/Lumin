@@ -1,0 +1,1 @@
+- make executor run on FastASTNode so that it can automatically have numbers and bools and stuff converted instead of stoi every time

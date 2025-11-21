@@ -11,13 +11,25 @@ const Token &Parser::peek(size_t n) const {
     return tokens[current + n];
 }
 
-const Token &Parser::consume() {
-    if (current >= tokens.size()) return tokens.back();
-    return tokens[current++];
+const Token &Parser::consume(int amount) {
+    if(amount == 1) {
+        if (current >= tokens.size()) return tokens.back();
+        return tokens[current++];
+    }
+    for(int i=0;i<amount - 1;i++) {
+        consume();
+    }
+    return consume();
 }
 
 bool Parser::match(Token::Type type, int offset) {
     return peek(offset).type == type;
+}
+bool Parser::matchMultiple(Token::Type type, int amount) {
+    for(int i=0;i<amount;i++) {
+        if (!match(type, i)) return false;
+    }
+    return true;
 }
 
 Token Parser::expectMultiple(const std::vector<Token::Type> &types, const std::string &err) {

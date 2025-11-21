@@ -90,7 +90,7 @@ void Executor::handleImports(std::vector<std::shared_ptr<ASTNode>> children, ENV
     }
 }
 
-void Executor::executePragma(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+void Executor::executePragma(std::shared_ptr<ASTNode> node, ENV env) {
     handlingModules.push_back(node->strValue);
     auto &children = node->children;
     handleImports(children[0]->children, env);
@@ -108,15 +108,14 @@ void Executor::executePragma(std::shared_ptr<ASTNode> node, std::shared_ptr<Envi
     handlingModules.pop_back();
 }
 
-void Executor::executePragmas(std::vector<std::shared_ptr<ASTNode>> children, std::shared_ptr<Environment> env) {
+void Executor::executePragmas(std::vector<std::shared_ptr<ASTNode>> children, ENV env) {
     for (auto &child : children) pragmas[child->strValue] = child;
     executePragma(children.back(), env);
 }
 
-ReturnValue Executor::executeFunctionDefinition(
+FunctionData Executor::executeFunctionDefinition(
         std::shared_ptr<ASTNode> node,
-        std::shared_ptr<Environment> env,
-        bool extractSignature)
+        ENV env)
 {
     std::vector<TypedIdentifier> params;
     for (size_t i = 0; i < node->children.size() - 1; ++i) {
@@ -132,24 +131,11 @@ ReturnValue Executor::executeFunctionDefinition(
         node->primitiveValue == Primitive::NONE
             ? (node->retType == "nil" ? Type(BaseType::NIL) : Type(node->retType))
             : Type(node->primitiveValue);
-
-    if (!extractSignature) {
-        env->set(
-            node->strValue,
-            createFunction(params, node->children.back(), retType, env)
-        );
-        return {};
-    }
-
-    ReturnValue r;
-    r.special = std::make_any<std::pair<std::vector<TypedIdentifier>, Type>>(
-        std::make_pair(params, retType)
-    );
-    return r;
+            
+    return std::make_shared<_FunctionData>(params, retType, node->children.back());
 }
 
-
-ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, bool extraBit) {
+ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool extraBit) {
     switch (node->type) {
         case ASTNode::Type::PROGRAM: executePragmas(node->children, env); return {};
         case ASTNode::Type::BLOCK: return executeBlock(node->children, std::make_shared<Environment>(env));
@@ -181,33 +167,23 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr
             }
             return {};
         case ASTNode::Type::FUNCTION: {
-            std::vector<TypedIdentifier> params;
-            for (size_t i = 0; i < node->children.size() - 1; ++i) {
-                auto c = node->children[i];
-                auto c0 = c->children[0];
-                auto primVal = c0->primitiveValue;
-                auto strVal = c0->strValue;
-                params.push_back({ c->strValue, primVal == Primitive::NONE ? Type(strVal) : Type(primVal) });
-            }
-            Type retType = node->primitiveValue == Primitive::NONE ? node->retType == "nil" ? Type(BaseType::NIL) : Type(node->retType) : Type(node->primitiveValue);
-            if(!extraBit) {
-                env->set(node->strValue, createFunction(params, node->children.back(), retType, env));
-                return {};
-            }
-            ReturnValue ret{};
-            ret.special = std::make_shared<std::any>(std::make_pair(params, retType));
-            return ret;
+            auto funcData = executeFunctionDefinition(node, env);
+            auto func = createFunction(funcData, env);
+            env->set(node->strValue, func);
+            return TypedValue(func);
         }
         case ASTNode::Type::NATIVE_STATEMENT: {
-            auto funcData = std::any_cast<std::pair<std::vector<TypedIdentifier>, Type>>(executeNode(node->children[0], env, true).special);
-            
+            auto funcData = executeFunctionDefinition(node->children[0], env);
+            auto nativeFunc = createNativeFunction(node->strValue, funcData, env);
+            env->set(node->strValue, nativeFunc);
+            return {};
         }
         default:
             return evaluateExpression(node, env);
     }
 }
 
-ReturnValue Executor::executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, std::shared_ptr<Environment> env) {
+ReturnValue Executor::executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, ENV env) {
     for (auto &n : nodes) {
         auto r = executeNode(n, env);
         if (r.hasReturn) return r;
@@ -228,7 +204,7 @@ TypedValue Executor::arrayOperation(
     const std::shared_ptr<ArrayType>& arr,
     const std::vector<int>& indices,
     std::shared_ptr<ASTNode> valNode,
-    std::shared_ptr<Environment> env
+    ENV env
 ) {
     TypedValue val = evaluateExpression(valNode, env);
     std::vector<T> valuesToAssign;
@@ -267,28 +243,47 @@ TypedValue Executor::arrayOperation(
 }
 
 std::shared_ptr<Function> Executor::createFunction(
-    const std::vector<TypedIdentifier> &params,
-    std::shared_ptr<ASTNode> body,
-    Type returnType,
-    std::shared_ptr<Environment> closureEnv
+    FunctionData funcData,
+    ENV closureEnv
 ) {
     return std::make_shared<Function>(Function{
-        [this, params, body, closureEnv, returnType](const std::vector<std::shared_ptr<TypedValue>> &args){
+        [this, funcData, closureEnv](const std::vector<std::shared_ptr<TypedValue>> &args){
             auto local = std::make_shared<Environment>(closureEnv);
-            for (size_t i = 0; i < params.size() && i < args.size(); ++i) {
-                if(!params[i].type.match(args[i]->type))
-                local->set(params[i].ident, *args[i]);
+            for (size_t i = 0; i < funcData->params.size() && i < args.size(); ++i) {
+                if(!funcData->params[i].type.match(args[i]->type))
+                    throw std::runtime_error("Expected type " + funcData->params[i].type.toString() + " but got " + args[1]->type.toString());
+                local->set(funcData->params[i].ident, *args[i]);
             }
-            ReturnValue r = executeNode(body, local);
-            if(!returnType.match(r.value.type)) {
-                throw std::runtime_error("Function return type mismatch - got " + r.value.type.toString() + " but expected " + returnType.toString());
+            ReturnValue r = executeNode(funcData->body, local);
+            if(!funcData->retType.match(r.value.type)) {
+                throw std::runtime_error("Function return type mismatch - got " + r.value.type.toString() + " but expected " + funcData->retType.toString());
+            }
+            return std::make_shared<TypedValue>(r.hasReturn ? r.value : TypedValue());
+        }
+    });
+}
+std::shared_ptr<Function> Executor::createNativeFunction(std::string name, FunctionData funcData, ENV env) {
+    if(env->nativeInqueries.find(name) == env->nativeInqueries.end())
+        throw std::runtime_error("Unable to link native function: " + name);
+    auto nf = env->nativeInqueries[name];
+    return std::make_shared<Function>(Function{
+        [this, funcData, nf, env](const std::vector<std::shared_ptr<TypedValue>> &args){
+            std::unordered_map<std::string, TypedValue> params;
+            for (size_t i = 0; i < funcData->params.size() && i < args.size(); ++i) {
+                if(!funcData->params[i].type.match(args[i]->type))
+                    throw std::runtime_error("Expected type " + funcData->params[i].type.toString() + " but got " + args[1]->type.toString());
+                params[funcData->params[i].ident] = *args[i];
+            }
+            ReturnValue r = nf(env, this, params);
+            if(!funcData->retType.match(r.value.type)) {
+                throw std::runtime_error("Native function return type mismatch - got " + r.value.type.toString() + " but expected " + funcData->retType.toString());
             }
             return std::make_shared<TypedValue>(r.hasReturn ? r.value : TypedValue());
         }
     });
 }
 
-TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) {
     auto eval = [this, &env](std::shared_ptr<ASTNode> n){ return evaluateExpression(n, env); };
 
     switch (node->type) {

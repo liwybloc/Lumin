@@ -11,7 +11,7 @@ Executor::Executor(std::shared_ptr<ASTNode> root) : root(root) {
     globalEnv->set("nil", TypedValue());
 }
 
-TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, ENV env) {
     int efficiency = std::stoi(node->children[0]->strValue);
 
     std::vector<int> shape;
@@ -97,7 +97,7 @@ TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std:
     return TypedValue(resultArr);
 }
 
-void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, ENV env) {
     std::string structName = node->strValue;
     std::shared_ptr<StructType> _struct = std::make_shared<StructType>(structName);
 
@@ -112,7 +112,7 @@ void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, std::share
     env->setType(structName, _struct);
 }
 
-TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env) {
+TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV env) {
     std::string structName = node->children[0]->strValue;
     auto structType = env->getType(structName);
     if (!structType) throw std::runtime_error("Struct not found: " + structName);
@@ -186,7 +186,7 @@ TypedValue Executor::primitiveValue(const Primitive val) {
 
 TypedValue Executor::handleAssignment(
     std::shared_ptr<ASTNode> node,
-    std::shared_ptr<Environment> env,
+    ENV env,
     Type type,
     bool modify
 ) {
@@ -244,7 +244,7 @@ TypedValue readOnStruct(const std::shared_ptr<Struct> &str, const std::string &p
 
 TypedValue Executor::handleReadAssignment(
     std::shared_ptr<ASTNode> readNode,
-    std::shared_ptr<Environment> env,
+    ENV env,
     std::shared_ptr<ASTNode> valNode
 ) {
     if (readNode->type != ASTNode::Type::READ)

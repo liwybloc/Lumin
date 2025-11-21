@@ -126,6 +126,13 @@ struct Function {
     std::function<std::shared_ptr<TypedValue>(const std::vector<std::shared_ptr<TypedValue>>&)> fn;
 };
 
+struct _FunctionData {
+    std::vector<TypedIdentifier> params;
+    Type retType;
+    std::shared_ptr<ASTNode> body;
+};
+using FunctionData = std::shared_ptr<_FunctionData>;
+
 struct Struct {
     const std::string name;
     const std::shared_ptr<StructType> type;
@@ -184,11 +191,20 @@ struct ReturnValue {
     ReturnValue(const TypedValue &v) : hasReturn(true), value(v) {}
 };
 
+class Environment;
+class Executor;
+using NativeFunc = std::function<ReturnValue(std::shared_ptr<Environment>, Executor*, std::unordered_map<std::string, TypedValue>)>;
+
 class Environment {
 public:
     explicit Environment(std::shared_ptr<Environment> parent = nullptr) : parent(parent) {}
 
     std::stack<TypedValue> selfRefStack;
+    std::unordered_map<std::string, NativeFunc> nativeInqueries;
+    void registerNative(const std::string &name, NativeFunc func) {
+        if(parent != nullptr) throw std::runtime_error("Cannot set native functions on a non-root environment");
+        nativeInqueries[name] = func;
+    }
 
     void set(const std::string &name, const TypedValue &val) { variables[name] = val; }
     void setType(const std::string &name, const std::shared_ptr<StructType> &type) { structTypes[name] = type; }
@@ -266,7 +282,7 @@ public:
     template <typename T>
     std::vector<int> getIndices(const std::shared_ptr<Array<T>> &arr,
                                 const std::shared_ptr<ASTNode> &indicesNode,
-                                std::shared_ptr<Environment> env) {
+                                ENV env) {
         std::vector<int> indices;
 
         for (const auto &idxNode : indicesNode->children) {
@@ -290,18 +306,18 @@ public:
     }
 
     template <typename T, typename ArrayType>
-    TypedValue handleArrayAccess(const std::shared_ptr<ArrayType> &arr, std::shared_ptr<ASTNode> indicesNode, std::shared_ptr<Environment> env);
+    TypedValue handleArrayAccess(const std::shared_ptr<ArrayType> &arr, std::shared_ptr<ASTNode> indicesNode, ENV env);
 
     template <typename T, typename ArrayType>
     void handleArrayAssignment(const std::shared_ptr<ArrayType> &arr,
                                std::shared_ptr<ASTNode> indicesNode,
-                               std::shared_ptr<Environment> env,
+                               ENV env,
                                std::shared_ptr<ASTNode> valNode);
 
     template <typename T, typename ArrayType>
     TypedValue processArrayOperation(const std::shared_ptr<ArrayType> &arr,
                                 std::shared_ptr<ASTNode> indicesNode,
-                                std::shared_ptr<Environment> env,
+                                ENV env,
                                 std::optional<std::shared_ptr<ASTNode>> valNode);
 
     int getIntValue(const TypedValue &val);
@@ -314,38 +330,40 @@ public:
     template <typename T, typename ArrayType>
     TypedValue arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices);
     template <typename T, typename ArrayType>
-    TypedValue arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, std::shared_ptr<Environment> env);
+    TypedValue arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, ENV env);
     void printValue(const TypedValue &val);
 
 private:
     std::shared_ptr<ASTNode> root;
-    std::shared_ptr<Environment> globalEnv;
+    ENV globalEnv;
 
     std::unordered_map<std::string, std::shared_ptr<ExportData>> exportData; 
     std::unordered_map<std::string, std::shared_ptr<ASTNode>> pragmas;
     std::vector<std::string> handlingModules;
 
-    TypedValue handleNDArrayAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
-    void handleStructDeclaration(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
-    TypedValue handleStructAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+    std::shared_ptr<Function> createNativeFunction(std::string name, FunctionData funcData, ENV env);
+
+    TypedValue handleNDArrayAssignment(std::shared_ptr<ASTNode> node, ENV env);
+    void handleStructDeclaration(std::shared_ptr<ASTNode> node, ENV env);
+    TypedValue handleStructAssignment(std::shared_ptr<ASTNode> node, ENV env);
 
     void handleImports(std::vector<std::shared_ptr<ASTNode>> children, ENV env);
 
-    void executePragma(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+    void executePragma(std::shared_ptr<ASTNode> node, ENV env);
 
-    void executePragmas(std::vector<std::shared_ptr<ASTNode>> children, std::shared_ptr<Environment> env);
+    void executePragmas(std::vector<std::shared_ptr<ASTNode>> children, ENV env);
 
-    ReturnValue executeFunctionDefinition(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, bool extractSignature);
+    FunctionData executeFunctionDefinition(std::shared_ptr<ASTNode> node, ENV env);
 
-    ReturnValue executeNode(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, bool extraBit = false);
+    ReturnValue executeNode(std::shared_ptr<ASTNode> node, ENV env, bool extraBit = false);
 
-    ReturnValue executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, std::shared_ptr<Environment> env);
-    TypedValue handleReadAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, std::shared_ptr<ASTNode> valNode);
+    ReturnValue executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, ENV env);
+    TypedValue handleReadAssignment(std::shared_ptr<ASTNode> node, ENV env, std::shared_ptr<ASTNode> valNode);
     TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property);
     TypedValue primitiveValue(const Primitive val);
-    TypedValue handleAssignment(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env, Type type, bool modify);
-    std::shared_ptr<Function> createFunction(const std::vector<TypedIdentifier> &params, std::shared_ptr<ASTNode> body, Type returnType, std::shared_ptr<Environment> closureEnv);
-    TypedValue evaluateExpression(std::shared_ptr<ASTNode> node, std::shared_ptr<Environment> env);
+    TypedValue handleAssignment(std::shared_ptr<ASTNode> node, ENV env, Type type, bool modify);
+    std::shared_ptr<Function> createFunction(FunctionData funcData, ENV closureEnv);
+    TypedValue evaluateExpression(std::shared_ptr<ASTNode> node, ENV env);
 };
 
 #endif

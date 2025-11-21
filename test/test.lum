@@ -1,16 +1,14 @@
-import "outstream";
-
-native fin int add(int x, int y, int z);
+fin test(string ...args) {
+    
+}
 
 fin main() -> int {
 
-    int x = 6;
-    int y = 7;
+    int a = 0;
+    int b = 0;
 
-    bool g = true;
-
-    println(add(x, y, 3));
-
+    println(add(1, 2, 3));
+    
     return 0;
 
 }
