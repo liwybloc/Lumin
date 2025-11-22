@@ -5,47 +5,58 @@
 #include <iostream>
 #include <optional>
 
-template<typename T, typename ArrayType>
-void Executor::printArray(const std::shared_ptr<ArrayType> &arr) {
-    std::cout << "[";
+void Executor::printArray(std::ostream *out, const std::shared_ptr<Array> &arr) {
+    *out << "[";
     for (size_t i = 0; i < arr->elements.size(); ++i) {
-        std::cout << *arr->elements[i];
-        if (i + 1 < arr->elements.size()) std::cout << ", ";
+        printValue(out, arr->elements[i]);
+        if (i + 1 < arr->elements.size()) {
+            *out << ", ";
+        }
     }
-    std::cout << "]";
+    *out << "]";
 }
 
-void Executor::printStruct(const std::shared_ptr<Struct> &_struct) {
-    std::cout << _struct->name << "{";
+void Executor::printStruct(std::ostream *out, const std::shared_ptr<Struct> &st) {
+    *out << st->name << "{";
     int idx = 0;
-    for (auto &[name, val] : _struct->fields) {
-        std::cout << name << ": "; printValue(val);
-        if (++idx < _struct->fields.size()) std::cout << ", ";
+    for (const auto &[name, val] : st->fields) {
+        *out << name << ": ";
+        printValue(out, val);
+        if (++idx < st->fields.size()) {
+            *out << ", ";
+        }
     }
-    std::cout << "}";
+    *out << "}";
 }
 
-template<typename ElemType, typename ArrayType>
-void printArrayHelper(const TypedValue &val) {
-    printArray<ElemType, ArrayType>(val.get<std::shared_ptr<ArrayType>>());
-}
-
-void Executor::printValue(const TypedValue &val) {
-    switch(val.type.kind) {
-        case BaseType::Int: std::cout << val.get<int>(); break;
-        case BaseType::Bool: std::cout << (val.get<bool>() ? "true" : "false"); break;
-        case BaseType::String: std::cout << val.get<std::string>(); break;
-        case BaseType::Function: std::cout << "[function]"; break;
-        case BaseType::NIL: std::cout << "nil"; break;
-
-        case BaseType::ArrayInt: printArray<int, IntArray>(val.get<std::shared_ptr<IntArray>>()); break;
-        case BaseType::ArrayBool: printArray<bool, BoolArray>(val.get<std::shared_ptr<BoolArray>>()); break;
-        case BaseType::ArrayString: printArray<std::string, StringArray>(val.get<std::shared_ptr<StringArray>>()); break;
-
-        case BaseType::Struct: printStruct(val.get<std::shared_ptr<Struct>>()); break;
-        case BaseType::ExportData: std::cout << "[file data of " << val.get<std::shared_ptr<ExportData>>()->fileName << "]"; break;
-
-        default: throw std::runtime_error("Unknown type in printValue");
+void Executor::printValue(std::ostream *out, const TypedValue &val) {
+    switch (val.type.kind) {
+        case BaseType::Int:
+            *out << val.get<int>();
+            return;
+        case BaseType::Bool:
+            *out << (val.get<bool>() ? "true" : "false");
+            return;
+        case BaseType::String:
+            *out << val.get<std::string>();
+            return;
+        case BaseType::Function:
+            *out << "[function]";
+            return;
+        case BaseType::NIL:
+            *out << "nil";
+            return;
+        case BaseType::Array:
+            printArray(out, val.get<std::shared_ptr<Array>>());
+            return;
+        case BaseType::Struct:
+            printStruct(out, val.get<std::shared_ptr<Struct>>());
+            return;
+        case BaseType::ExportData:
+            *out << "[file data of " << val.get<std::shared_ptr<ExportData>>()->fileName << "]";
+            return;
+        default:
+            throw std::runtime_error("Unknown type in printValue");
     }
 }
 
@@ -117,21 +128,25 @@ FunctionData Executor::executeFunctionDefinition(
         std::shared_ptr<ASTNode> node,
         ENV env)
 {
-    std::vector<TypedIdentifier> params;
+    std::vector<Parameter> params;
     for (size_t i = 0; i < node->children.size() - 1; ++i) {
         auto c = node->children[i];
         auto c0 = c->children[0];
         auto primVal = c0->primitiveValue;
         auto strVal = c0->strValue;
-        params.push_back({ c->strValue, primVal == Primitive::NONE ? Type(strVal)
-                                                                   : Type(primVal) });
+
+        Parameter param = { c->strValue, primVal == Primitive::NONE ? Type(strVal) : Type(primVal) };
+        if(c->children.size() > 1 && c->children[1]->type == ASTNode::Type::ARRAY_ASSIGN) {
+            param.vararg = true;
+        }
+        params.push_back(param);
     }
 
     Type retType =
         node->primitiveValue == Primitive::NONE
             ? (node->retType == "nil" ? Type(BaseType::NIL) : Type(node->retType))
             : Type(node->primitiveValue);
-            
+
     return std::make_shared<_FunctionData>(params, retType, node->children.back());
 }
 
@@ -158,14 +173,33 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
                 if (r.hasReturn) return r;
             }
             return {};
-        case ASTNode::Type::FOR_STATEMENT:
-            executeNode(node->children[0], env);
-            while (getBoolValue(evaluateExpression(node->children[1], env))) {
-                auto r = executeNode(node->children[3], env);
+        case ASTNode::Type::FOR_STATEMENT: {
+            if (node->strValue == "0") {
+                executeNode(node->children[0], env);
+                while (getBoolValue(evaluateExpression(node->children[1], env))) {
+                    auto r = executeNode(node->children[3], env);
+                    if (r.hasReturn) return r;
+                    evaluateExpression(node->children[2], env);
+                }
+                return {};
+            }
+
+            const auto &varDecl = node->children[0];
+            const auto &iterableExpr = node->children[1];
+            const auto &body = node->children[2];
+
+            const auto iterableValue = evaluateExpression(iterableExpr, env);
+            if(iterableValue.type.kind != BaseType::Array) {
+                throw std::runtime_error("Expected array for enhanced for loop");
+            }
+            for (const auto &item : iterableValue.point<Array>()->elements) {
+                env->set(varDecl->strValue, item);
+                auto r = executeNode(body, env);
                 if (r.hasReturn) return r;
-                evaluateExpression(node->children[2], env);
             }
             return {};
+        }
+
         case ASTNode::Type::FUNCTION: {
             auto funcData = executeFunctionDefinition(node, env);
             auto func = createFunction(funcData, env);
@@ -191,55 +225,47 @@ ReturnValue Executor::executeBlock(const std::vector<std::shared_ptr<ASTNode>> &
     return {};
 }
 
-template<typename T, typename ArrayType>
-TypedValue Executor::arrayOperation(const std::shared_ptr<ArrayType>& arr, const std::vector<int>& indices) {
-    if (indices.size() == 1) return TypedValue(*arr->elements[indices[0]]);
-    auto result = std::make_shared<ArrayType>();
-    for (int idx : indices) result->add(std::make_shared<T>(*arr->elements[idx]));
-    return TypedValue(result);
+TypedValue Executor::arrayOperation(const std::shared_ptr<Array>& arr, const std::vector<int>& indices) {
+    if (indices.size() == 1) return arr->elements[indices[0]];
+
+    auto result = std::make_shared<Array>();
+    result->elementType = arr->elementType; // preserve element type
+    for (int idx : indices) {
+        result->elements.push_back(arr->elements[idx]);
+    }
+    return TypedValue(result, result->elementType.array());
 }
 
-template<typename T, typename ArrayType>
 TypedValue Executor::arrayOperation(
-    const std::shared_ptr<ArrayType>& arr,
+    const std::shared_ptr<Array>& arr,
     const std::vector<int>& indices,
     std::shared_ptr<ASTNode> valNode,
     ENV env
 ) {
     TypedValue val = evaluateExpression(valNode, env);
-    std::vector<T> valuesToAssign;
+    std::vector<TypedValue> valuesToAssign;
 
-    if constexpr (std::is_same_v<T, int>) {
-        if (val.type.match(BaseType::ArrayInt)) {
-            const auto valArr = val.get<std::shared_ptr<IntArray>>();
-            for (const auto &el : valArr->elements) valuesToAssign.push_back(*el);
-        } else {
-            valuesToAssign.push_back(getIntValue(val));
-        }
-    } else if constexpr (std::is_same_v<T, bool>) {
-        if (val.type.match(BaseType::ArrayBool)) {
-            const auto valArr = val.get<std::shared_ptr<BoolArray>>();
-            for (const auto &el : valArr->elements) valuesToAssign.push_back(*el);
-        } else {
-            valuesToAssign.push_back(getBoolValue(val));
-        }
-    } else if constexpr (std::is_same_v<T, std::string>) {
-        if (val.type.match(BaseType::ArrayString)) {
-            const auto valArr = val.get<std::shared_ptr<StringArray>>();
-            for (const auto &el : valArr->elements) valuesToAssign.push_back(*el);
-        } else {
-            valuesToAssign.push_back(getStringValue(val));
-        }
+    if (val.type.match(BaseType::Array)) {
+        auto valArr = val.get<std::shared_ptr<Array>>();
+        valuesToAssign = valArr->elements;
+    } else {
+        valuesToAssign.push_back(val);
     }
 
     for (size_t i = 0; i < indices.size(); ++i) {
         const int idx = indices[i];
-        const T valueToSet =
+        const TypedValue &valueToSet =
             i < valuesToAssign.size() ? valuesToAssign[i] : valuesToAssign.back();
-        *arr->elements[idx] = valueToSet;
+        arr->elements[idx] = valueToSet;
     }
 
-    return TypedValue(arr);
+    return TypedValue(arr, arr->elementType.array());
+}
+
+void parseArg(std::shared_ptr<Environment> env, Parameter* param, std::shared_ptr<TypedValue> arg, int i) {
+    if(!param->type.match(arg->type))
+        throw std::runtime_error("Expected type " + param->type.toString() + " but got " + arg->type.toString());
+    env->set(param->ident, *arg);
 }
 
 std::shared_ptr<Function> Executor::createFunction(
@@ -247,21 +273,55 @@ std::shared_ptr<Function> Executor::createFunction(
     ENV closureEnv
 ) {
     return std::make_shared<Function>(Function{
-        [this, funcData, closureEnv](const std::vector<std::shared_ptr<TypedValue>> &args){
+        [this, funcData, closureEnv](const std::vector<std::shared_ptr<TypedValue>> &args) {
             auto local = std::make_shared<Environment>(closureEnv);
-            for (size_t i = 0; i < funcData->params.size() && i < args.size(); ++i) {
-                if(!funcData->params[i].type.match(args[i]->type))
-                    throw std::runtime_error("Expected type " + funcData->params[i].type.toString() + " but got " + args[1]->type.toString());
-                local->set(funcData->params[i].ident, *args[i]);
+
+            for (size_t i = 0; i < args.size(); ++i) {
+                if (i >= funcData->params.size()) {
+                    throw std::runtime_error("Too many arguments provided for function");
+                }
+
+                auto &param = funcData->params[i];
+                if (param.vararg) {
+                    auto varargArray = std::make_shared<Array>();
+                    varargArray->elementType = param.type;
+
+                    while (i < args.size()) {
+                        if (!args[i]->type.match(param.type)) {
+                            throw std::runtime_error(
+                                "Expected type " + param.type.toString() + 
+                                " but got " + args[i]->type.toString()
+                            );
+                        }
+                        varargArray->elements.push_back(*args[i]);
+                        ++i;
+                    }
+                    local->set(param.ident, TypedValue(varargArray, param.type.array()));
+                } else {
+                    if (!args[i]->type.match(param.type)) {
+                        throw std::runtime_error(
+                            "Expected type " + param.type.toString() + 
+                            " but got " + args[i]->type.toString()
+                        );
+                    }
+                    local->set(param.ident, *args[i]);
+                }
             }
+
             ReturnValue r = executeNode(funcData->body, local);
-            if(!funcData->retType.match(r.value.type)) {
-                throw std::runtime_error("Function return type mismatch - got " + r.value.type.toString() + " but expected " + funcData->retType.toString());
+
+            if (!funcData->retType.match(r.value.type)) {
+                throw std::runtime_error(
+                    "Function return type mismatch - got " + r.value.type.toString() + 
+                    " but expected " + funcData->retType.toString()
+                );
             }
+
             return std::make_shared<TypedValue>(r.hasReturn ? r.value : TypedValue());
         }
     });
 }
+
 std::shared_ptr<Function> Executor::createNativeFunction(std::string name, FunctionData funcData, ENV env) {
     if(env->nativeInqueries.find(name) == env->nativeInqueries.end())
         throw std::runtime_error("Unable to link native function: " + name);
@@ -302,51 +362,79 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
         case ASTNode::Type::ARRAY_ACCESS: {
             TypedValue arrVal = eval(node->children[0]);
             auto idxNode = node->children[1];
-            switch(arrVal.type.kind) {
-                case BaseType::ArrayInt: {
-                    auto arr = arrVal.point<IntArray>();
-                    return arrayOperation<int, IntArray>(arr, getIndices(arr, idxNode, env));
-                }
-                case BaseType::ArrayBool: {
-                    auto arr = arrVal.point<BoolArray>();
-                    return arrayOperation<bool, BoolArray>(arr, getIndices(arr, idxNode, env));
-                }
-                case BaseType::ArrayString: {
-                    auto arr = arrVal.point<StringArray>();
-                    return arrayOperation<std::string, StringArray>(arr, getIndices(arr, idxNode, env));
-                }
-                default: throw std::runtime_error("Attempted array access on non-array");
+
+            if (arrVal.type.kind != BaseType::Array) {
+                throw std::runtime_error("Attempted array access on non-array");
             }
+
+            auto arr = arrVal.get<std::shared_ptr<Array>>();
+            auto indices = getIndices(arr, idxNode, env);
+
+            return arrayOperation(arr, indices);
         }
 
         case ASTNode::Type::ARRAY_ASSIGN: {
             TypedValue arrVal = eval(node->children[0]);
             auto idxNode = node->children[1];
             auto valNode = node->children[2];
-            std::visit(overloaded{
-                [this, &idxNode, &env, &valNode](std::shared_ptr<IntArray> &arr) { arrayOperation<int, IntArray>(arr, getIndices(arr, idxNode, env), valNode, env); },
-                [this, &idxNode, &env, &valNode](std::shared_ptr<BoolArray> &arr) { arrayOperation<bool, BoolArray>(arr, getIndices(arr, idxNode, env), valNode, env); },
-                [this, &idxNode, &env, &valNode](std::shared_ptr<StringArray> &arr) { arrayOperation<std::string, StringArray>(arr, getIndices(arr, idxNode, env), valNode, env); },
-                [](auto&) { throw std::runtime_error("Attempted array assignment on non-array"); }
-            }, arrVal.value);
+
+            if (arrVal.type.kind != BaseType::Array) {
+                throw std::runtime_error("Attempted array assignment on non-array");
+            }
+
+            auto arr = arrVal.get<std::shared_ptr<Array>>();
+            auto indices = getIndices(arr, idxNode, env);
+
+            arrayOperation(arr, indices, valNode, env);
+
             return arrVal;
         }
 
         case ASTNode::Type::ARRAY_LITERAL: {
-            auto arr = std::make_shared<IntArray>();
+            if (node->children.empty()) {
+                auto arr = std::make_shared<Array>();
+                arr->elementType = Type(BaseType::NIL);
+                return TypedValue(arr, arr->elementType.array());
+            }
+
+            TypedValue firstVal;
+            bool firstValSet = false;
+
+            auto arr = std::make_shared<Array>();
+
             for (auto &child : node->children) {
                 if (child->type == ASTNode::Type::RANGE) {
+                    if (firstValSet && !firstVal.type.match(BaseType::Int))
+                        throw std::runtime_error("RANGE literal is only allowed for integer arrays");
+
                     int start = getIntValue(eval(child->children[0]));
                     int end   = getIntValue(eval(child->children[1]));
                     for (int i = start; i <= end; ++i) {
-                        env->pushSelfRef(i); arr->add(std::make_shared<int>(i)); env->popSelfRef();
+                        env->pushSelfRef(TypedValue(i));
+                        arr->elements.push_back(TypedValue(i));
+                        env->popSelfRef();
                     }
+                    firstValSet = true;
+                    if (!firstValSet) firstVal = TypedValue(0);
                 } else {
-                    int val = getIntValue(eval(child));
-                    env->pushSelfRef(val); arr->add(std::make_shared<int>(val)); env->popSelfRef();
+                    TypedValue val = evaluateExpression(child, env);
+                    if (!firstValSet) {
+                        firstVal = val;
+                        arr->elementType = val.type;
+                        firstValSet = true;
+                    } else if (!val.type.match(arr->elementType)) {
+                        throw std::runtime_error(
+                            "Array literal elements must have the same type: got " +
+                            val.type.toString() + " but expected " + arr->elementType.toString()
+                        );
+                    }
+                    env->pushSelfRef(val);
+                    arr->elements.push_back(val);
+                    env->popSelfRef();
                 }
             }
-            return arr;
+
+            return TypedValue(arr, arr->elementType.array());
         }
 
         case ASTNode::Type::CALL: {
@@ -359,8 +447,34 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
         }
 
         case ASTNode::Type::BINARY_OP: {
-            int left = getIntValue(eval(node->children[0]));
-            int right = getIntValue(eval(node->children[1]));
+            auto lhs = eval(node->children[0]);
+            auto rhs = eval(node->children[1]);
+            switch(node->binopValue) {
+                case PLUS: {
+                    if(lhs.type.kind != BaseType::String) break;
+                    std::ostringstream str;
+                    str << lhs.get<std::string>();
+                    if(rhs.type.kind != BaseType::String) {
+                        printValue(&str, rhs);
+                    } else {
+                        str << rhs.get<std::string>();
+                    }
+                    return TypedValue(str.str());
+                }
+                case MULTIPLY: {
+                    if(lhs.type.kind != BaseType::String) break;
+                    if(rhs.type.kind != BaseType::Int) 
+                        throw std::runtime_error("Cannot multiply a string with a non-integer");
+                    int amt = rhs.get<int>();
+                    std::string left = lhs.get<std::string>();
+                    std::ostringstream str;
+                    for(int i = 0; i < amt; ++i)
+                        str << left;
+                    return TypedValue(str.str());
+                }
+            }
+            int left = getIntValue(lhs);
+            int right = getIntValue(rhs);
             switch(node->binopValue) {
                 case PLUS:          return TypedValue(left + right);
                 case MINUS:         return TypedValue(left - right);
@@ -393,11 +507,18 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
 
         case ASTNode::Type::SIZED_ARRAY_DECLARE: {
             int size = getIntValue(eval(node->children[0]));
-            int val = getIntValue(primitiveValue(node->primitiveValue));
-            auto arr = std::make_shared<IntArray>();
-            for (int i = 0; i < size; ++i) arr->add(std::make_shared<int>(val));
-            return arr;
+            TypedValue val = primitiveValue(node->primitiveValue);
+
+            auto arr = std::make_shared<Array>();
+            arr->elementType = val.type;
+
+            for (int i = 0; i < size; ++i) {
+                arr->elements.push_back(val);
+            }
+
+            return TypedValue(arr, arr->elementType.array());
         }
+
 
         default:
             throw std::runtime_error("Unsupported expression type: " + std::to_string(static_cast<int>(node->type)));

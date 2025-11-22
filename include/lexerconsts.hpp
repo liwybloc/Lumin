@@ -21,7 +21,7 @@ const std::unordered_map<std::string, Token::Type> operators = {
     {"{", Token::Type::LBRACE}, {"}", Token::Type::RBRACE},
     {"?", Token::Type::QUESTION_MARK}, {":", Token::Type::COLON},
     // {"@", Token::Type::SELF_REFERENCE}, 
-    {".", Token::Type::READ},
+    {".", Token::Type::READ}, {"...", Token::Type::SPREAD},
 };
 
 const std::unordered_map<std::string, Token::Type> keywords = {

@@ -158,7 +158,8 @@ std::shared_ptr<ASTNode> Parser::parseDeclarationWithTypeAndName(
     const Token &nameToken,
     bool isPrimitive,
     const std::shared_ptr<ASTNode> &arraySize,
-    bool isArray
+    bool isArray,
+    bool skipSemicolon
 ) {
     ASTNode::Type nodeType = isPrimitive ? ASTNode::Type::PRIMITIVE_ASSIGNMENT : ASTNode::Type::STRUCT_ASSIGNMENT;
     auto node = makeTypedNode(nodeType, 1);
@@ -177,11 +178,11 @@ std::shared_ptr<ASTNode> Parser::parseDeclarationWithTypeAndName(
         node->children.push_back(parseExpression());
     }
 
-    expect(Token::Type::SEMICOLON, "Expected ';' after assignment", true);
+    if(!skipSemicolon) expect(Token::Type::SEMICOLON, "Expected ';' after assignment", true);
     return node;
 }
 
-std::shared_ptr<ASTNode> Parser::parseStatement(int depth) {
+std::shared_ptr<ASTNode> Parser::parseStatement(int depth, bool dataBit) {
     const Token &tok = peek();
 
     switch (tok.type) {
@@ -193,7 +194,7 @@ std::shared_ptr<ASTNode> Parser::parseStatement(int depth) {
             bool isArray = false;
             std::shared_ptr<ASTNode> arraySize = parseOptionalArraySize(isArray);
             const Token nameTok = expect(Token::Type::IDENTIFIER, "Expected identifier after type", true);
-            return parseDeclarationWithTypeAndName(typeTok, nameTok, true, arraySize, isArray);
+            return parseDeclarationWithTypeAndName(typeTok, nameTok, true, arraySize, isArray, dataBit);
         }
 
         case Token::Type::IDENTIFIER:
@@ -251,12 +252,41 @@ std::shared_ptr<ASTNode> Parser::parseStatement(int depth) {
                 return node;
             }
 
-            if (match(Token::Type::IDENTIFIER) && match(Token::Type::IDENTIFIER, 1)) {
+            if (match(Token::Type::IDENTIFIER, 1)) {
                 const Token typeTok = consume(); // type
                 const Token nameTok = consume(); // variable name
                 bool isArray = false;
                 auto arraySize = parseOptionalArraySize(isArray);
-                return parseDeclarationWithTypeAndName(typeTok, nameTok, false, arraySize, isArray);
+                if (match(Token::Type::EQUAL)) {
+                    consume();
+
+                    expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
+
+                    auto initNode = makeTypedNode(ASTNode::Type::STRUCT_ASSIGNMENT, 0);
+                    initNode->strValue = nameTok.value;
+                    auto type = makeTypedNode(ASTNode::Type::STRING, 1);
+                    type->strValue = typeTok.value;
+                    initNode->children.push_back(type);
+
+                    while (!match(Token::Type::RBRACE)) {
+                        if(match(Token::Type::IDENTIFIER) && match(Token::Type::COLON, 1)) {
+                            auto assign = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
+                            assign->strValue = consume().value; // variable name
+                            consume(); // :
+                            assign->children.push_back(parseExpression()); // value
+                            initNode->children.push_back(assign);
+                        } else {
+                            initNode->children.push_back(parseExpression());
+                        }
+                        if (match(Token::Type::COMMA)) consume();
+                    }
+
+                    expect(Token::Type::RBRACE, "Expected '}' after struct initializer", true);
+                    expect(Token::Type::SEMICOLON, "Expected ';' after struct declaration", true);
+
+                    return initNode;
+                }
+                return parseDeclarationWithTypeAndName(typeTok, nameTok, false, arraySize, isArray, dataBit);
             }
             break;
 

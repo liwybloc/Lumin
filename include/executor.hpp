@@ -1,5 +1,5 @@
-#ifndef EXECUTOR_H
-#define EXECUTOR_H
+#ifndef EXECUTOR_HPP
+#define EXECUTOR_HPP
 
 #include "parser.hpp"
 #include "executils.hpp"
@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 
-enum class BaseType { Int, Bool, String, ArrayInt, ArrayBool, ArrayString, Function, Struct, ExportData, NIL };
+enum class BaseType { Int, Bool, String, Array, Function, Struct, ExportData, NIL };
 
 struct StructType;
 struct Struct;
@@ -25,33 +25,16 @@ struct Function;
 struct ExportData;
 struct TypedValue;
 struct Type;
-
-template<typename T>
-struct Array {
-    using value_type = T;
-    std::vector<std::shared_ptr<T>> elements;
-
-    void add(const std::shared_ptr<T>& element) {
-        elements.push_back(element);
-    }
-};
-
-using IntArray    = Array<int>;
-using BoolArray   = Array<bool>;
-using StringArray = Array<std::string>;
-
-using Value = std::variant<int, bool, std::nullptr_t, std::string,
-                           std::shared_ptr<IntArray>,
-                           std::shared_ptr<BoolArray>,
-                           std::shared_ptr<StringArray>,
-                           std::shared_ptr<Function>,
-                           std::shared_ptr<Struct>,
-                           std::shared_ptr<ExportData>>;
+struct Array;
 
 struct Type {
     BaseType kind;
     std::string customName;
+    std::shared_ptr<Type> elementType;
 
+    Type() : kind(BaseType::NIL) {}
+    Type(BaseType base) : kind(base) {}
+    Type(const std::string &name) : kind(BaseType::Struct), customName(name) {}
     Type(Primitive prim) {
         switch (prim) {
             case Primitive::INT: kind = BaseType::Int; break;
@@ -61,14 +44,24 @@ struct Type {
         }
     }
 
-    Type(const std::string &name) : kind(BaseType::Struct), customName(name) {}
-    Type(const BaseType &base) : kind(base) {}
-
     bool match(BaseType base) const {
         return kind == base;
     }
-    bool match(Type otherType) const {
-        return kind == otherType.kind && customName == otherType.customName;
+
+    bool match(const Type &other) const {
+        if (kind != other.kind) return false;
+        if (kind == BaseType::Struct) return customName == other.customName;
+        if (kind == BaseType::Array) {
+            if (!elementType || !other.elementType) return false;
+            return elementType->match(*other.elementType);
+        }
+        return true;
+    }
+
+    Type array() const {
+        Type t(BaseType::Array);
+        t.elementType = std::make_shared<Type>(*this);
+        return t;
     }
 
     std::string toString() const {
@@ -76,9 +69,7 @@ struct Type {
             case BaseType::Int: return "int";
             case BaseType::Bool: return "bool";
             case BaseType::String: return "string";
-            case BaseType::ArrayInt: return "array<int>";
-            case BaseType::ArrayBool: return "array<bool>";
-            case BaseType::ArrayString: return "array<string>";
+            case BaseType::Array: return "array<" + (elementType ? elementType->toString() : std::string("?")) + ">";
             case BaseType::Function: return "function";
             case BaseType::Struct: return "struct: " + customName;
             case BaseType::ExportData: return "exportData";
@@ -88,20 +79,32 @@ struct Type {
     }
 };
 
+struct Array {
+    Type elementType;
+    std::vector<TypedValue> elements;
+
+    void add(const TypedValue &v);
+};
+using PArray = std::shared_ptr<Array>;
+using PFunction = std::shared_ptr<Function>;
+using PStruct = std::shared_ptr<Struct>;
+using PExportData = std::shared_ptr<ExportData>;
+
+using Value = std::variant<int, bool, std::nullptr_t, std::string,
+                           PArray, PFunction, PStruct, PExportData>;
+
 struct TypedValue {
     Value value;
     Type type;
 
-    TypedValue(std::shared_ptr<ExportData> ed) : value(ed), type(Type(BaseType::ExportData)) {}
-    TypedValue(std::shared_ptr<Function> fn) : value(fn), type(Type(BaseType::Function)) {}
+    TypedValue(PExportData ed) : value(ed), type(Type(BaseType::ExportData)) {}
+    TypedValue(PFunction fn) : value(fn), type(Type(BaseType::Function)) {}
     TypedValue(Value value, Type type) : value(value), type(type) {}
     TypedValue(int value) : value(value), type(Type(Primitive::INT)) {}
     TypedValue(bool value) : value(value), type(Type(Primitive::BOOL)) {}
     TypedValue(const std::string &value) : value(value), type(Type(Primitive::STRING)) {}
-    TypedValue(const std::shared_ptr<IntArray> arr) : value(arr), type(Type(BaseType::ArrayInt)) {}
-    TypedValue(const std::shared_ptr<BoolArray> arr) : value(arr), type(Type(BaseType::ArrayBool)) {}
-    TypedValue(const std::shared_ptr<StringArray> arr) : value(arr), type(Type(BaseType::ArrayString)) {}
-    TypedValue(const std::shared_ptr<Struct> fn) : value(fn), type(Type(BaseType::Struct)) {}
+    TypedValue(const PArray arr, Type t) : value(arr), type(t) {}
+    TypedValue(const PStruct fn) : value(fn), type(Type(BaseType::Struct)) {}
     explicit TypedValue() : value(nullptr), type(Type(BaseType::NIL)) {}
 
     template <typename T>
@@ -122,12 +125,20 @@ struct TypedIdentifier {
     TypedIdentifier(std::string &ident, Type type) : ident(ident), type(type) {}
 };
 
+struct Parameter {
+    std::string ident;
+    Type type;
+    bool vararg;
+
+    Parameter(std::string &ident, Type type) : ident(ident), type(type) {}
+};
+
 struct Function {
     std::function<std::shared_ptr<TypedValue>(const std::vector<std::shared_ptr<TypedValue>>&)> fn;
 };
 
 struct _FunctionData {
-    std::vector<TypedIdentifier> params;
+    std::vector<Parameter> params;
     Type retType;
     std::shared_ptr<ASTNode> body;
 };
@@ -269,6 +280,9 @@ struct ExportData {
 class Executor {
 public:
     explicit Executor(std::shared_ptr<ASTNode> root);
+    void printArray(std::ostream *out, const std::shared_ptr<Array> &arr);
+    void printStruct(std::ostream *out, const std::shared_ptr<Struct> &st);
+    void printValue(std::ostream *out, const TypedValue &val);
     TypedValue run();
 
     template <typename T, typename... Cases>
@@ -279,8 +293,7 @@ public:
         }, val);
     }
 
-    template <typename T>
-    std::vector<int> getIndices(const std::shared_ptr<Array<T>> &arr,
+    std::vector<int> getIndices(const std::shared_ptr<Array> &arr,
                                 const std::shared_ptr<ASTNode> &indicesNode,
                                 ENV env) {
         std::vector<int> indices;
@@ -305,17 +318,14 @@ public:
         return indices;
     }
 
-    template <typename T, typename ArrayType>
-    TypedValue handleArrayAccess(const std::shared_ptr<ArrayType> &arr, std::shared_ptr<ASTNode> indicesNode, ENV env);
+    TypedValue handleArrayAccess(const std::shared_ptr<Array> &arr, std::shared_ptr<ASTNode> indicesNode, ENV env);
 
-    template <typename T, typename ArrayType>
-    void handleArrayAssignment(const std::shared_ptr<ArrayType> &arr,
+    void handleArrayAssignment(const std::shared_ptr<Array> &arr,
                                std::shared_ptr<ASTNode> indicesNode,
                                ENV env,
                                std::shared_ptr<ASTNode> valNode);
 
-    template <typename T, typename ArrayType>
-    TypedValue processArrayOperation(const std::shared_ptr<ArrayType> &arr,
+    TypedValue processArrayOperation(const std::shared_ptr<Array> &arr,
                                 std::shared_ptr<ASTNode> indicesNode,
                                 ENV env,
                                 std::optional<std::shared_ptr<ASTNode>> valNode);
@@ -324,20 +334,15 @@ public:
     bool getBoolValue(const TypedValue &val);
     std::string getStringValue(const TypedValue &val);
 
-    void printStruct(const std::shared_ptr<Struct> &_struct);
-    template<typename T, typename ArrayType>
-    void printArray(const std::shared_ptr<ArrayType> &arr);
-    template <typename T, typename ArrayType>
-    TypedValue arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices);
-    template <typename T, typename ArrayType>
-    TypedValue arrayOperation(const std::shared_ptr<ArrayType> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, ENV env);
-    void printValue(const TypedValue &val);
+    TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices);
+    TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, ENV env);
+    TypedValue evaluateExpression(std::shared_ptr<ASTNode> node, ENV env);
 
 private:
     std::shared_ptr<ASTNode> root;
     ENV globalEnv;
 
-    std::unordered_map<std::string, std::shared_ptr<ExportData>> exportData; 
+    std::unordered_map<std::string, PExportData> exportData; 
     std::unordered_map<std::string, std::shared_ptr<ASTNode>> pragmas;
     std::vector<std::string> handlingModules;
 
@@ -363,7 +368,6 @@ private:
     TypedValue primitiveValue(const Primitive val);
     TypedValue handleAssignment(std::shared_ptr<ASTNode> node, ENV env, Type type, bool modify);
     std::shared_ptr<Function> createFunction(FunctionData funcData, ENV closureEnv);
-    TypedValue evaluateExpression(std::shared_ptr<ASTNode> node, ENV env);
 };
 
 #endif

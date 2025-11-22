@@ -132,10 +132,10 @@ private:
     std::shared_ptr<ASTNode> parseOptionalArraySize(bool &isArray);
     std::shared_ptr<ASTNode> buildSizedArrayDeclareNode(const Token &typeToken, std::shared_ptr<ASTNode> sizeNode, bool isPrimitive);
     std::shared_ptr<ASTNode> buildTypeNodeFromToken(const Token &typeToken);
-    std::shared_ptr<ASTNode> parseDeclarationWithTypeAndName(const Token &typeToken, const Token &nameToken, bool isPrimitive, const std::shared_ptr<ASTNode> &arraySize, bool isArray);
+    std::shared_ptr<ASTNode> parseDeclarationWithTypeAndName(const Token &typeToken, const Token &nameToken, bool isPrimitive, const std::shared_ptr<ASTNode> &arraySize, bool isArray, bool skipSemicolon);
+    std::shared_ptr<ASTNode> parseStatement(int depth, bool dataBit = false);
     std::shared_ptr<ASTNode> parseOptionalNdarrayShape();
     KWMAP initKwMap();
-    std::shared_ptr<ASTNode> parseStatement(int depth);
     std::shared_ptr<ASTNode> parseBlock(int depth);
     std::shared_ptr<ASTNode> parseExpression();
     std::shared_ptr<ASTNode> parsePrimary();

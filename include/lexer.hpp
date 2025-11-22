@@ -63,9 +63,10 @@ struct Token {
 
         ARROW,
         SELF_REFERENCE,
-        RANGE,
 
         READ,
+        RANGE,
+        SPREAD,
 
         BITWISE_AND,
         BITWISE_OR,

@@ -111,34 +111,47 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
                     std::shared_ptr<ASTNode> typeNode = makeTypedNode(ASTNode::Type::STRING, 1);
 
                     if (p->match(Token::Type::PRIMITIVE)) {
-                        param->primitiveValue = p->consume().primitiveValue;
+                        typeNode->primitiveValue = p->consume().primitiveValue;
                     } else {
                         typeNode->strValue = p->consume().value;
                     }
                     param->children.push_back(typeNode);
 
-                    if(p->matchMultiple(Token::Type::READ, 3)) {
-                        p->consume(3);
+                    bool spread = false;
+                    if(p->match(Token::Type::SPREAD)) {
+                        p->consume();
                         // signifier
                         param->children.push_back(makeNode(ASTNode::Type::ARRAY_ASSIGN));
+                        spread = true;
                     }
 
                     param->strValue = p->expect(Token::Type::IDENTIFIER, "Expected identifier after parameter", true).value;
 
                     node->children.push_back(param);
-                    if (p->match(Token::Type::COMMA)) p->consume();
+
+                    if(spread && !p->match(Token::Type::RPAREN))
+                        p->error("Spread argument must be the last parameter");
+                    else if (p->match(Token::Type::COMMA))
+                        p->consume();
                 }
                 p->expect(Token::Type::RPAREN, "Expected ')' after function parameters", true);
 
                 if (!alt) {
-                    p->expect(Token::Type::ARROW, "Expected '->' after function parameters", true);
+                    std::string value;
+                    Primitive primitive = Primitive::NONE;
+                    if(p->match(Token::Type::ARROW)) {
+                        p->consume();
+                        Token t = p->consume();
+                        if (!(t.type == Token::Type::PRIMITIVE || t.type == Token::Type::IDENTIFIER))
+                            p->error("Expected type after arrow");
+                        value = t.value;
+                        primitive = t.primitiveValue;
+                    } else {
+                        value = "nil";
+                    }
 
-                    Token t = p->consume();
-                    if (!(t.type == Token::Type::PRIMITIVE || t.type == Token::Type::IDENTIFIER))
-                        p->error("Expected type after arrow");
-
-                    node->retType = t.value;
-                    if (t.type == Token::Type::PRIMITIVE) node->primitiveValue = t.primitiveValue;
+                    node->retType = value;
+                    if (primitive != Primitive::NONE) node->primitiveValue = primitive;
                 }
 
                 if(p->match(Token::Type::SEMICOLON)) {
@@ -160,11 +173,26 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
             [](Parser* p, int depth) {
                 auto node = makeNode(ASTNode::Type::FOR_STATEMENT);
                 p->expect(Token::Type::LPAREN, "Expected '(' after for", true);
-                node->children.push_back(p->parseStatement(depth + 1));
-                node->children.push_back(p->parseExpression());
-                p->expect(Token::Type::SEMICOLON, "Expected ';' after for loop condition", true);
-                node->children.push_back(p->parseExpression());
-                p->expect(Token::Type::RPAREN, "Expected ')' after for loop increment", true);
+
+                // enhanced for
+                if((p->match(Token::Type::IDENTIFIER) || p->match(Token::Type::PRIMITIVE))
+                     && p->match(Token::Type::IDENTIFIER, 1)
+                     && p->match(Token::Type::COLON, 2)) {
+                    node->children.push_back(p->parseStatement(depth + 1, true));
+                    p->consume(); // colon
+                    auto name = p->expect(Token::Type::IDENTIFIER, "Expected identifier after enhanced for", true);
+                    auto array = makeTypedNode(ASTNode::Type::IDENTIFIER, 0);
+                    array->strValue = name.value;
+                    node->children.push_back(array);
+                    node->strValue = "1";
+                } else {
+                    node->children.push_back(p->parseStatement(depth + 1));
+                    node->children.push_back(p->parseExpression());
+                    p->expect(Token::Type::SEMICOLON, "Expected ';' after for loop condition", true);
+                    node->children.push_back(p->parseExpression());
+                    node->strValue = "0";
+                }
+                p->expect(Token::Type::RPAREN, "Expected ')' after for loop innards", true);
                 node->children.push_back(p->parseStatement(depth + 1));
                 return node;
             }

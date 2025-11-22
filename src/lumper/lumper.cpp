@@ -14,7 +14,6 @@ constexpr uint64_t MAX_CSIZE = 1ULL << 30;
 constexpr uint32_t MAX_AST_DEPTH = 2000;
 constexpr uint32_t MAX_STRING_LEN = 100 * 1024 * 1024; 
 constexpr uint8_t TYPE_MAX_VALUE = 31; 
-
 static inline void writeByte(std::ostream &out, uint8_t v) {
     out.put(char(v));
     if (!out) throw std::runtime_error("Write error");

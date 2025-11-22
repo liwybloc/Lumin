@@ -4,7 +4,7 @@
 
 void addOutstream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
     auto printFunc = [executor](const std::vector<std::shared_ptr<TypedValue>> &args, bool newline) -> std::shared_ptr<TypedValue> {
-        for (const auto &arg : args) executor->printValue(*arg);
+        for (const auto &arg : args) executor->printValue(&std::cout, *arg);
         if (newline) std::cout << std::endl;
         return std::make_shared<TypedValue>(0);
     };

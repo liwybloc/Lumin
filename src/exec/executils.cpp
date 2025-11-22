@@ -4,11 +4,20 @@
 #include <iostream>
 #include <optional>
 #include <algorithm>
+#include <fstream>
 
 Executor::Executor(std::shared_ptr<ASTNode> root) : root(root) {
     globalEnv = std::make_shared<Environment>();
 
     globalEnv->set("nil", TypedValue());
+
+    std::ofstream debugFile("astdebug2.txt");
+    if (debugFile.is_open()) {
+        debugFile << astToString(root).c_str();
+        debugFile.close();
+    } else {
+        std::cerr << "Failed to open astdebug2.txt for writing\n";
+    }
 }
 
 TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, ENV env) {
@@ -22,80 +31,93 @@ TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, ENV 
     for (auto dim : shape) totalElements *= dim;
 
     std::shared_ptr<ASTNode> rhsNode = node->children.back();
-    auto resultArr = std::make_shared<IntArray>();
+    auto resultArr = std::make_shared<Array>();
+    resultArr->elementType = Type(Primitive::INT);
 
     std::vector<int> indices(shape.size(), 0);
-    auto indexArr = std::make_shared<IntArray>();
-    for (int idx : indices) indexArr->elements.push_back(std::make_shared<int>(idx));
 
     switch(efficiency) {
         case 0: {
             TypedValue elementVal = evaluateExpression(rhsNode, env);
-            std::shared_ptr<IntArray> rhsArr;
+            std::shared_ptr<Array> rhsArr;
 
-            if (elementVal.type.match(BaseType::ArrayInt)) {
-                rhsArr = elementVal.get<std::shared_ptr<IntArray>>();
+            if (elementVal.type.match(BaseType::Array)) {
+                rhsArr = elementVal.get<std::shared_ptr<Array>>();
             }
 
             for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
-                int finalValue;
+                TypedValue finalVal;
                 if (rhsArr) {
-                    finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[flatIndex % rhsArr->elements.size()];
+                    finalVal = rhsArr->elements.empty() 
+                        ? TypedValue(0) 
+                        : rhsArr->elements[flatIndex % rhsArr->elements.size()];
                 } else {
-                    finalValue = getIntValue(elementVal);
+                    finalVal = elementVal;
                 }
 
-                resultArr->elements.push_back(std::make_shared<int>(finalValue));
+                resultArr->elements.push_back(finalVal);
             }
             break;
         }
         case 1: {
             for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
-                env->pushSelfRef(flatIndex);
-
+                env->pushSelfRef(TypedValue(flatIndex));
                 TypedValue elementVal = evaluateExpression(rhsNode, env);
-                int finalValue;
-                if (elementVal.type.match(BaseType::ArrayInt)) {
-                    auto rhsArr = elementVal.get<std::shared_ptr<IntArray>>();
-                    finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[flatIndex % rhsArr->elements.size()];
+                TypedValue finalVal;
+
+                if (elementVal.type.match(BaseType::Array)) {
+                    auto rhsArr = elementVal.get<std::shared_ptr<Array>>();
+                    finalVal = rhsArr->elements.empty() 
+                        ? TypedValue(0) 
+                        : rhsArr->elements[flatIndex % rhsArr->elements.size()];
                 } else {
-                    finalValue = getIntValue(elementVal);
+                    finalVal = elementVal;
                 }
 
-                resultArr->elements.push_back(std::make_shared<int>(finalValue));
+                resultArr->elements.push_back(finalVal);
                 env->popSelfRef();
             }
             break;
         }
         case 2: {
-            env->pushSelfRef(indexArr);
+            auto indexArr = std::make_shared<Array>();
+            indexArr->elementType = Type(Primitive::INT);
+            for (auto idx : indices)
+                indexArr->elements.push_back(TypedValue(idx));
+
+            env->pushSelfRef(TypedValue(indexArr, Type(BaseType::Int)));
             for (int flatIndex = 0; flatIndex < totalElements; ++flatIndex) {
                 TypedValue elementVal = evaluateExpression(rhsNode, env);
-                int finalValue;
-                if (elementVal.type.match(BaseType::ArrayInt)) {
-                    auto rhsArr = elementVal.get<std::shared_ptr<IntArray>>();
-                    finalValue = rhsArr->elements.empty() ? 0 : *rhsArr->elements[flatIndex % rhsArr->elements.size()];
+                TypedValue finalVal;
+
+                if (elementVal.type.match(BaseType::Array)) {
+                    auto rhsArr = elementVal.get<std::shared_ptr<Array>>();
+                    finalVal = rhsArr->elements.empty() 
+                        ? TypedValue(0) 
+                        : rhsArr->elements[flatIndex % rhsArr->elements.size()];
                 } else {
-                    finalValue = getIntValue(elementVal);
+                    finalVal = elementVal;
                 }
 
-                resultArr->elements.push_back(std::make_shared<int>(finalValue));
+                resultArr->elements.push_back(finalVal);
 
                 for (int d = static_cast<int>(shape.size()) - 1; d >= 0; --d) {
                     indices[d]++;
-                    *indexArr->elements[d] = indices[d];
+                    indexArr->elements[d] = TypedValue(indices[d]);
                     if (indices[d] < shape[d]) break;
                     indices[d] = 0;
-                    *indexArr->elements[d] = 0;
+                    indexArr->elements[d] = TypedValue(0);
                 }
             }
             env->popSelfRef();
+            break;
         }
     }
 
-    env->set(node->strValue, TypedValue(resultArr));
-    return TypedValue(resultArr);
+    env->set(node->strValue, TypedValue(resultArr, resultArr->elementType.array()));
+    return TypedValue(resultArr, resultArr->elementType.array());
 }
+
 
 void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, ENV env) {
     std::string structName = node->strValue;
@@ -113,51 +135,43 @@ void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, ENV env) {
 }
 
 TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV env) {
-    std::string structName = node->children[0]->strValue;
+    const std::string varName = node->strValue;
+    const std::string structName = node->children[0]->strValue;
+
     auto structType = env->getType(structName);
-    if (!structType) throw std::runtime_error("Struct not found: " + structName);
+    if (!structType)
+        throw std::runtime_error("Unknown struct type: " + structName);
 
-    auto rhsNode = node->children[1];
+    auto structDef = std::static_pointer_cast<StructType>(structType);
+    auto instance = std::make_shared<Struct>(structName, structType);
 
-    if (rhsNode->type != ASTNode::Type::BLOCK) {
-        TypedValue val = evaluateExpression(rhsNode, env);
+    if (node->children.size() - 1 != structDef->fields.size())
+        throw std::runtime_error("Struct assignment has incorrect number of arguments");
 
-        if (!val.type.match(BaseType::Struct) || val.get<std::shared_ptr<Struct>>()->name != structName) {
-            throw std::runtime_error("RHS expression does not evaluate to a struct (or an incorrect one) for direct assignment: " + structName);
-        }
+    for (size_t i = 0; i < structDef->fields.size(); ++i) {
+        auto &field = structDef->fields[i];
+        auto argNode = node->children[i + 1];
+        TypedValue val;
 
-        env->set(node->strValue, val);
-        return val;
-    }
-
-    auto newStruct = std::make_shared<Struct>(structName, structType);
-    int positionalIndex = 0;
-
-    for (auto &child : rhsNode->children) {
-        std::string fieldName;
-        TypedValue evaluatedValue;
-
-        if (child->type == ASTNode::Type::PRIMITIVE_ASSIGNMENT) {
-            fieldName = child->strValue;
-            evaluatedValue = evaluateExpression(child->children[0], env);
-        } else if (child->type == ASTNode::Type::STRUCT_ASSIGNMENT) {
-            fieldName = child->strValue;
-            evaluatedValue = handleStructAssignment(child, env);
+        if (argNode->type == ASTNode::Type::PRIMITIVE_ASSIGNMENT) {
+            const std::string fieldName = argNode->strValue;
+            TypedValue inner = evaluateExpression(argNode->children[0], env);
+            if (!inner.type.match(field.second))
+                throw std::runtime_error("Type mismatch for field: " + fieldName);
+            val = inner;
         } else {
-            if (positionalIndex >= structType->fields.size())
-                throw std::runtime_error("Too many positional values for struct: " + structName);
-
-            fieldName = structType->fields[positionalIndex].first;
-            evaluatedValue = evaluateExpression(child, env);
-            positionalIndex++;
+            TypedValue literal = evaluateExpression(argNode, env);
+            if (!literal.type.match(field.second))
+                throw std::runtime_error("Type mismatch for field at index " + std::to_string(i));
+            val = literal;
         }
 
-        newStruct->addField(fieldName, evaluatedValue);
+        instance->fields.emplace_back(field.first, val);
     }
 
-    TypedValue val = TypedValue(newStruct);
-    env->set(node->strValue, val);
-    return val;
+    TypedValue finalVal(instance, Type(structName));
+    env->set(varName, finalVal);
+    return finalVal;
 }
 
 int Executor::getIntValue(const TypedValue &val) {
@@ -184,39 +198,77 @@ TypedValue Executor::primitiveValue(const Primitive val) {
     }
 }
 
-TypedValue Executor::handleAssignment(
+ TypedValue Executor::handleAssignment(
     std::shared_ptr<ASTNode> node,
     ENV env,
     Type type,
     bool modify
 ) {
+    TypedValue val;
+
+    auto inferArrayType = [this](const std::shared_ptr<ASTNode> &arrayNode, ENV env) -> Type {
+        if (arrayNode->children.empty()) return Type(BaseType::Array); // empty array defaults to array<nil>
+        TypedValue firstVal = evaluateExpression(arrayNode->children[0], env);
+        Type elemType = firstVal.type;
+
+        for (size_t i = 1; i < arrayNode->children.size(); ++i) {
+            TypedValue nextVal = evaluateExpression(arrayNode->children[i], env);
+            if (!nextVal.type.match(elemType))
+                throw std::runtime_error(
+                    "Array literal contains mixed types: " + elemType.toString() + " vs " + nextVal.type.toString()
+                );
+        }
+
+        return elemType.array();
+    };
+
+    // Struct property assignment
     if (!node->children.empty() && node->children[0]->type == ASTNode::Type::READ) {
         auto readNode = node->children[0];
         TypedValue parentVal = evaluateExpression(readNode->children[0], env);
 
-        if(!parentVal.type.match(BaseType::Struct))
+        if (!parentVal.type.match(BaseType::Struct))
             throw std::runtime_error("Left-hand side of assignment is not a struct or object");
 
         auto strPtr = parentVal.get<std::shared_ptr<Struct>>();
-
         const std::string &prop = readNode->children[1]->strValue;
+
         auto it = std::find_if(strPtr->fields.begin(), strPtr->fields.end(),
-                                [&prop](const auto &pair){ return pair.first == prop; });
+                               [&prop](const auto &pair){ return pair.first == prop; });
         if (it == strPtr->fields.end())
             throw std::runtime_error("Struct does not have field: " + prop);
 
         env->pushSelfRef(it->second);
-        TypedValue val = evaluateExpression(node->children[1], env);
-        if(!val.type.match(it->second.type)) throw std::runtime_error("Incompatible types for assignment");
+        val = evaluateExpression(node->children[1], env);
+
+        if (node->children[1]->type == ASTNode::Type::ARRAY_LITERAL)
+            val.type = inferArrayType(node->children[1], env);
+
+        // override expected type to match inferred array type
+        type = val.type;
+
+        if (!val.type.match(it->second.type))
+            throw std::runtime_error("Incompatible types for assignment; expected " +
+                                     it->second.type.toString() + " but got " +
+                                     val.type.toString() + " for field: " + prop);
+
         it->second = val;
         env->popSelfRef();
         return val;
     }
 
+    // Normal variable assignment
     if (modify) env->pushSelfRef(env->get(node->strValue));
+    val = node->children.empty() ? TypedValue(0) : evaluateExpression(node->children[0], env);
 
-    TypedValue val = node->children.empty() ? TypedValue(0) : evaluateExpression(node->children[0], env);
-    if(!val.type.match(type)) throw std::runtime_error("Incompatible types for assignment");
+    // Infer array type and override expected type
+    if (!node->children.empty() && node->children[0]->type == ASTNode::Type::ARRAY_LITERAL)
+        type = inferArrayType(node->children[0], env);
+
+    if (!val.type.match(type))
+        throw std::runtime_error("Incompatible types for assignment; expected " +
+                                 type.toString() + " but got " +
+                                 val.type.toString());
 
     if (modify) env->modify(node->strValue, val);
     else env->set(node->strValue, val);
@@ -254,26 +306,31 @@ TypedValue Executor::handleReadAssignment(
     const std::string &prop = readNode->children[1]->strValue;
     TypedValue val = evaluateExpression(valNode, env);
 
-    switch(val.type.kind) {
+    switch(parentVal.type.kind) {
         case BaseType::Struct: {
-            auto str = val.get<std::shared_ptr<Struct>>();
+            auto str = parentVal.get<std::shared_ptr<Struct>>();
             auto it = std::find_if(str->fields.begin(), str->fields.end(),
                 [&prop](const auto &pair){ return pair.first == prop; });
             if (it == str->fields.end())
                 throw std::runtime_error("Struct does not have field: " + prop);
 
             it->second = val;
+            break;
         }
-        case BaseType::ArrayBool:
-        case BaseType::ArrayString:
-        case BaseType::ArrayInt: {
-            if(prop == "length") throw std::runtime_error("Cannot modify array length");
+        case BaseType::Array: {
+            auto arr = parentVal.get<std::shared_ptr<Array>>();
+            if(prop == "length")
+                throw std::runtime_error("Cannot modify array length");
             throw std::runtime_error("Cannot modify array elements");
+            break;
         }
+        default:
+            throw std::runtime_error("Cannot assign to non-object property");
     }
 
     return val;
 }
+
 
 TypedValue Executor::evaluateReadProperty(const TypedValue &target, const std::string &property) {
     switch(target.type.kind) {
@@ -281,16 +338,8 @@ TypedValue Executor::evaluateReadProperty(const TypedValue &target, const std::s
             auto str = target.get<std::shared_ptr<Struct>>();
             return readOnStruct(str, property);
         }
-        case BaseType::ArrayInt: {
-            auto arr = target.get<std::shared_ptr<IntArray>>();
-            return readOnArray(arr, property);
-        }
-        case BaseType::ArrayBool: {
-            auto arr = target.get<std::shared_ptr<BoolArray>>();
-            return readOnArray(arr, property);
-        }
-        case BaseType::ArrayString: {
-            auto arr = target.get<std::shared_ptr<StringArray>>();
+        case BaseType::Array: {
+            auto arr = target.get<std::shared_ptr<Array>>();
             return readOnArray(arr, property);
         }
         case BaseType::ExportData: {
