@@ -198,12 +198,13 @@ TypedValue Executor::primitiveValue(const Primitive val) {
     }
 }
 
- TypedValue Executor::handleAssignment(
+TypedValue Executor::handleAssignment(
     std::shared_ptr<ASTNode> node,
     ENV env,
     Primitive primVal,
     bool modify
 ) {
+
     TypedValue val;
 
     auto inferArrayType = [this](const std::shared_ptr<ASTNode> &arrayNode, ENV env) -> Type {

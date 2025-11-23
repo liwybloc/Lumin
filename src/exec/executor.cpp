@@ -4,6 +4,7 @@
 #include "filestream.hpp"
 #include <iostream>
 #include <optional>
+#include <parserutils.hpp>
 
 void Executor::printArray(std::ostream *out, const std::shared_ptr<Array> &arr) {
     *out << "[";
@@ -161,7 +162,7 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
         case ASTNode::Type::PROGRAM: executePragmas(node->children, env); return {};
         case ASTNode::Type::BLOCK: return executeBlock(node->children, std::make_shared<Environment>(env));
         case ASTNode::Type::STRUCT_DECLARE: handleStructDeclaration(node, env); return {};
-        case ASTNode::Type::PRIMITIVE_ASSIGNMENT: handleAssignment(node, env, node->primitiveValue, false); return {};
+        case ASTNode::Type::PRIMITIVE_ASSIGNMENT: handleAssignment(node, env, node->primitiveValue, true); return {};
         case ASTNode::Type::STRUCT_ASSIGNMENT: handleStructAssignment(node, env); return {};
         case ASTNode::Type::RETURN_STATEMENT:
             return ReturnValue(node->children.empty() ? TypedValue() : evaluateExpression(node->children[0], env));
@@ -179,12 +180,13 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
             }
             return {};
         case ASTNode::Type::FOR_STATEMENT: {
+            auto localEnv = std::make_shared<Environment>(env);
             if (node->strValue == "0") {
-                executeNode(node->children[0], env);
-                while (getBoolValue(evaluateExpression(node->children[1], env))) {
-                    auto r = executeNode(node->children[3], env);
+                executeNode(node->children[0], localEnv);
+                while (getBoolValue(evaluateExpression(node->children[1], localEnv))) {
+                    auto r = executeNode(node->children[3], localEnv);
                     if (r.hasReturn) return r;
-                    evaluateExpression(node->children[2], env);
+                    evaluateExpression(node->children[2], localEnv);
                 }
                 return {};
             }
@@ -193,13 +195,13 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
             const auto &iterableExpr = node->children[1];
             const auto &body = node->children[2];
 
-            const auto iterableValue = evaluateExpression(iterableExpr, env);
+            const auto iterableValue = evaluateExpression(iterableExpr, localEnv);
             if(iterableValue.type.kind != BaseType::Array) {
                 throw std::runtime_error("Expected array for enhanced for loop");
             }
             for (const auto &item : iterableValue.point<Array>()->elements) {
-                env->set(varDecl->strValue, item);
-                auto r = executeNode(body, env);
+                localEnv->set(varDecl->strValue, item);
+                auto r = executeNode(body, localEnv);
                 if (r.hasReturn) return r;
             }
             return {};
@@ -217,8 +219,7 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
             env->set(node->strValue, nativeFunc);
             return {};
         }
-        default:
-            return evaluateExpression(node, env);
+        default: evaluateExpression(node, env); return {};
     }
 }
 
@@ -478,6 +479,10 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
                     return TypedValue(str.str());
                 }
             }
+            printValue(&std::cout, lhs);
+            printf(" ");
+            printValue(&std::cout, rhs);
+            printf("\n");
             int left = getIntValue(lhs);
             int right = getIntValue(rhs);
             switch(node->binopValue) {

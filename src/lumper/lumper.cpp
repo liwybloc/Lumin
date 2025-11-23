@@ -124,6 +124,7 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
         case ASTNode::Type::STRUCT_ASSIGNMENT:
         case ASTNode::Type::PRAGMA:
         case ASTNode::Type::BOOL:
+        case ASTNode::Type::FOR_STATEMENT:
             writeString(out, node->strValue);
             break;
         default:
@@ -173,6 +174,7 @@ static std::shared_ptr<ASTNode> decodeNode(std::istream &in, uint32_t depth) {
         case ASTNode::Type::STRUCT_ASSIGNMENT:
         case ASTNode::Type::PRAGMA:
         case ASTNode::Type::BOOL:
+        case ASTNode::Type::FOR_STATEMENT:
             n->strValue = readString(in);
             break;
         default:
