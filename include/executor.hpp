@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 
-enum class BaseType { Int, Bool, String, Array, Function, Struct, ExportData, NIL };
+enum class BaseType { Int, Bool, String, Unknown, Array, Function, Struct, ExportData, NIL };
 
 struct StructType;
 struct Struct;
@@ -40,15 +40,17 @@ struct Type {
             case Primitive::INT: kind = BaseType::Int; break;
             case Primitive::BOOL: kind = BaseType::Bool; break;
             case Primitive::STRING: kind = BaseType::String; break;
+            case Primitive::UNKNOWN: kind = BaseType::Unknown; break;
             default: throw std::runtime_error("Invalid primitive type - " + std::to_string(static_cast<int>(prim)));
         }
     }
 
     bool match(BaseType base) const {
-        return kind == base;
+        return kind == base || kind == BaseType::Unknown;
     }
 
     bool match(const Type &other) const {
+        if (kind == BaseType::Unknown) return true;
         if (kind != other.kind) return false;
         if (kind == BaseType::Struct) return customName == other.customName;
         if (kind == BaseType::Array) {
@@ -130,7 +132,7 @@ struct Parameter {
     Type type;
     bool vararg;
 
-    Parameter(std::string &ident, Type type) : ident(ident), type(type) {}
+    Parameter(std::string &ident, Type type, bool vararg) : ident(ident), type(type), vararg(vararg) {}
 };
 
 struct Function {
@@ -284,13 +286,10 @@ public:
     void printStruct(std::ostream *out, const std::shared_ptr<Struct> &st);
     void printValue(std::ostream *out, const TypedValue &val);
     TypedValue run();
-
-    template <typename T, typename... Cases>
-    T extract(const Value &val, Cases &&...cases) {
-        return std::visit(overloaded{
-            std::forward<Cases>(cases)...,
-            [](auto&) -> T { throw std::runtime_error("Type mismatch"); }
-        }, val);
+    
+    [[noreturn]] void error(const std::string &msg) {
+        std::cerr << "Error: " << msg << std::endl;
+        exit(1);
     }
 
     std::vector<int> getIndices(const std::shared_ptr<Array> &arr,
@@ -318,24 +317,13 @@ public:
         return indices;
     }
 
-    TypedValue handleArrayAccess(const std::shared_ptr<Array> &arr, std::shared_ptr<ASTNode> indicesNode, ENV env);
-
-    void handleArrayAssignment(const std::shared_ptr<Array> &arr,
-                               std::shared_ptr<ASTNode> indicesNode,
-                               ENV env,
-                               std::shared_ptr<ASTNode> valNode);
-
-    TypedValue processArrayOperation(const std::shared_ptr<Array> &arr,
-                                std::shared_ptr<ASTNode> indicesNode,
-                                ENV env,
-                                std::optional<std::shared_ptr<ASTNode>> valNode);
-
     int getIntValue(const TypedValue &val);
     bool getBoolValue(const TypedValue &val);
     std::string getStringValue(const TypedValue &val);
 
     TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices);
     TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, ENV env);
+    void parseArg(std::shared_ptr<Environment> env, Parameter *param, std::shared_ptr<TypedValue> arg, int i);
     TypedValue evaluateExpression(std::shared_ptr<ASTNode> node, ENV env);
 
 private:
@@ -363,12 +351,14 @@ private:
     ReturnValue executeNode(std::shared_ptr<ASTNode> node, ENV env, bool extraBit = false);
 
     ReturnValue executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, ENV env);
+    TypedValue readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property);
     TypedValue handleReadAssignment(std::shared_ptr<ASTNode> node, ENV env, std::shared_ptr<ASTNode> valNode);
     TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property);
     TypedValue primitiveValue(const Primitive val);
-    Type inferArrayType(const std::shared_ptr<ASTNode> &arrayNode, ENV env);
     TypedValue handleAssignment(std::shared_ptr<ASTNode> node, ENV env, Primitive primVal, bool modify);
     std::shared_ptr<Function> createFunction(FunctionData funcData, ENV closureEnv);
+    template <typename T>
+    TypedValue readOnArray(std::shared_ptr<T> arr, const std::string &property);
 };
 
 #endif

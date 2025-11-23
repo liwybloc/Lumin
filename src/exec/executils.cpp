@@ -146,7 +146,7 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV e
 
     auto structType = env->getType(structName);
     if (!structType)
-        throw std::runtime_error("Unknown struct type: " + structName);
+        error("Unknown struct type: " + structName);
 
     auto structDef = std::static_pointer_cast<StructType>(structType);
     auto instance = std::make_shared<Struct>(structName, structType);
@@ -155,7 +155,7 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV e
     for (int i = idx; i < (int)node->children.size(); ++i) args.push_back(node->children[i]);
 
     if (args.size() != structDef->fields.size())
-        throw std::runtime_error("Struct assignment has incorrect number of arguments");
+        error("Struct assignment has incorrect number of arguments");
 
     for (size_t i = 0; i < structDef->fields.size(); ++i) {
         auto &field = structDef->fields[i];
@@ -166,12 +166,12 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV e
             const std::string fieldName = argNode->strValue;
             TypedValue inner = evaluateExpression(argNode->children[0], env);
             if (!inner.type.match(field.second))
-                throw std::runtime_error("Type mismatch for field: " + fieldName);
+                error("Type mismatch for field: " + fieldName);
             val = inner;
         } else {
             TypedValue literal = evaluateExpression(argNode, env);
             if (!literal.type.match(field.second))
-                throw std::runtime_error("Type mismatch for field at index " + std::to_string(i));
+                error("Type mismatch for field at index " + std::to_string(i));
             val = literal;
         }
 
@@ -184,17 +184,17 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV e
 }
 
 int Executor::getIntValue(const TypedValue &val) {
-    if(!val.type.match(BaseType::Int)) throw std::runtime_error("Expected integer value");
+    if(!val.type.match(BaseType::Int)) error("Expected integer value");
     return val.get<int>();
 }
 
 bool Executor::getBoolValue(const TypedValue &val) {
-    if(!val.type.match(BaseType::Bool)) throw std::runtime_error("Expected boolean value");
+    if(!val.type.match(BaseType::Bool)) error("Expected boolean value");
     return val.get<bool>();
 }
 
 std::string Executor::getStringValue(const TypedValue &val) {
-    if(!val.type.match(BaseType::String)) throw std::runtime_error("Expected string value");
+    if(!val.type.match(BaseType::String)) error("Expected string value");
     return val.get<std::string>();
 }
 
@@ -203,7 +203,7 @@ TypedValue Executor::primitiveValue(const Primitive val) {
         case Primitive::INT: return 0;
         case Primitive::STRING: return "";
         case Primitive::BOOL: return false;
-        default: throw std::runtime_error("Invalid primitive value");
+        default: error("Invalid primitive value");
     }
 }
 
@@ -242,7 +242,7 @@ TypedValue Executor::handleAssignment(
         for (size_t i = 1; i < arrayNode->children.size(); ++i) {
             TypedValue nextVal = evaluateExpression(arrayNode->children[i], env);
             if (!nextVal.type.match(elemType))
-                throw std::runtime_error(
+                error(
                     "Array literal contains mixed types: " + elemType.toString() + " vs " + nextVal.type.toString()
                 );
         }
@@ -254,7 +254,7 @@ TypedValue Executor::handleAssignment(
         TypedValue parentVal = evaluateExpression(readNode->children[0], env);
 
         if (!parentVal.type.match(BaseType::Struct))
-            throw std::runtime_error("Left-hand side of assignment is not a struct or object");
+            error("Left-hand side of assignment is not a struct or object");
 
         auto strPtr = parentVal.get<std::shared_ptr<Struct>>();
         const std::string &prop = readNode->children[1]->strValue;
@@ -262,7 +262,7 @@ TypedValue Executor::handleAssignment(
         auto it = std::find_if(strPtr->fields.begin(), strPtr->fields.end(),
                                [&prop](const auto &pair){ return pair.first == prop; });
         if (it == strPtr->fields.end())
-            throw std::runtime_error("Struct does not have field: " + prop);
+            error("Struct does not have field: " + prop);
 
         env->pushSelfRef(it->second);
         TypedValue rhsVal = evaluateExpression(node->children[idx + 1], env);
@@ -273,7 +273,7 @@ TypedValue Executor::handleAssignment(
         }
 
         if (!rhsVal.type.match(it->second.type))
-            throw std::runtime_error("Incompatible types for assignment; expected " +
+            error("Incompatible types for assignment; expected " +
                                      it->second.type.toString() + " but got " +
                                      rhsVal.type.toString() + " for field: " + prop);
 
@@ -285,7 +285,7 @@ TypedValue Executor::handleAssignment(
     if (node->type == ASTNode::Type::STRUCT_ASSIGNMENT) {
         int tIdx = idx;
         if (tIdx >= (int)node->children.size()) {
-            throw std::runtime_error("Malformed struct declaration/assignment");
+            error("Malformed struct declaration/assignment");
         }
         bool hasExplicitType = (node->children[tIdx]->type == ASTNode::Type::IDENTIFIER || node->children[tIdx]->type == ASTNode::Type::STRING);
         if (hasExplicitType) {
@@ -332,7 +332,7 @@ TypedValue Executor::handleAssignment(
     }
 
     if (!val.type.match(expectedType))
-        throw std::runtime_error("Incompatible types for assignment; expected " +
+        error("Incompatible types for assignment; expected " +
                                  expectedType.toString() + " but got " +
                                  val.type.toString());
 
@@ -347,17 +347,17 @@ TypedValue Executor::handleAssignment(
 }
 
 template<typename T>
-TypedValue readOnArray(std::shared_ptr<T> arr, const std::string &property) {
+TypedValue Executor::readOnArray(std::shared_ptr<T> arr, const std::string &property) {
     if (property == "length") return TypedValue(static_cast<int>(arr->elements.size()));
-    throw std::runtime_error("Unknown array property: " + property);
+    error("Unknown array property: " + property);
 }
 
-TypedValue readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property) {
+TypedValue Executor::readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property) {
     auto it = std::find_if(str->fields.begin(), str->fields.end(),
         [&property](const auto& pair){ return pair.first == property; });
 
     if (it == str->fields.end()) {
-        throw std::runtime_error("Struct does not have field: " + property);
+        error("Struct does not have field: " + property);
     }
 
     return it->second;
@@ -369,7 +369,7 @@ TypedValue Executor::handleReadAssignment(
     std::shared_ptr<ASTNode> valNode
 ) {
     if (readNode->type != ASTNode::Type::READ)
-        throw std::runtime_error("Expected READ node for member assignment");
+        error("Expected READ node for member assignment");
 
     TypedValue parentVal = evaluateExpression(readNode->children[0], env);
     const std::string &prop = readNode->children[1]->strValue;
@@ -381,7 +381,7 @@ TypedValue Executor::handleReadAssignment(
             auto it = std::find_if(str->fields.begin(), str->fields.end(),
                 [&prop](const auto &pair){ return pair.first == prop; });
             if (it == str->fields.end())
-                throw std::runtime_error("Struct does not have field: " + prop);
+                error("Struct does not have field: " + prop);
 
             it->second = val;
             break;
@@ -389,12 +389,12 @@ TypedValue Executor::handleReadAssignment(
         case BaseType::Array: {
             auto arr = parentVal.get<std::shared_ptr<Array>>();
             if(prop == "length")
-                throw std::runtime_error("Cannot modify array length");
-            throw std::runtime_error("Cannot modify array elements");
+                error("Cannot modify array length");
+            error("Cannot modify array elements");
             break;
         }
         default:
-            throw std::runtime_error("Cannot assign to non-object property");
+            error("Cannot assign to non-object property");
     }
 
     return val;
@@ -415,7 +415,12 @@ TypedValue Executor::evaluateReadProperty(const TypedValue &target, const std::s
             auto exp = target.get<std::shared_ptr<ExportData>>();
             return exp->getExportedValue(property);
         }
+        case BaseType::String: {
+            auto str = target.get<std::string>();
+            if (property == "length") return TypedValue(static_cast<int>(str.size()));
+            error("Unknown string property: " + property);
+        }
         default:
-            throw std::runtime_error("Attempted READ on non-object");
+            error("Attempted READ on non-object");
     }
 }

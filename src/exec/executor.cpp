@@ -63,7 +63,7 @@ void Executor::printValue(std::ostream *out, const TypedValue &val) {
             *out << "[file data of " << val.get<std::shared_ptr<ExportData>>()->fileName << "]";
             return;
         default:
-            throw std::runtime_error("Unknown type in printValue");
+            error("Unknown type in printValue");
     }
 }
 
@@ -72,7 +72,7 @@ TypedValue Executor::run() {
     if (globalEnv->has("main")) {
         auto mainFunc = globalEnv->get("main");
         if (!mainFunc.type.match(BaseType::Function))
-            throw std::runtime_error("main is not a function type - received " + mainFunc.type.toString());
+            error("main is not a function type - received " + mainFunc.type.toString());
         return *std::get<std::shared_ptr<Function>>(mainFunc.value)->fn({});
     }
     return TypedValue(0);
@@ -95,15 +95,15 @@ void Executor::handleImports(std::vector<std::shared_ptr<ASTNode>> children, ENV
         const std::string &name = child->strValue;
         if (name.ends_with(".lum")) {
             if (!exportData.contains(name)) {
-                if (!pragmas.contains(name)) throw std::runtime_error("Unknown pragma: " + name);
+                if (!pragmas.contains(name)) error("Unknown pragma: " + name);
                 if (std::find(handlingModules.begin(), handlingModules.end(), name) != handlingModules.end())
-                    throw std::runtime_error("Circular import: " + name);
+                    error("Circular import: " + name);
                 executePragma(pragmas[name], std::make_shared<Environment>());
             }
             env->set(child->children[0]->strValue, exportData[name]);
             continue;
         }
-        if (!maps.contains(name)) throw std::runtime_error("Unknown module: " + name);
+        if (!maps.contains(name)) error("Unknown module: " + name);
         maps.at(name)(env, this);
     }
 }
@@ -119,7 +119,7 @@ void Executor::executePragma(std::shared_ptr<ASTNode> node, ENV env) {
 
     for (auto &exportNode : children[1]->children) {
         std::string var = exportNode->strValue;
-        if (!env->has(var)) throw std::runtime_error("Cannot export undefined variable: " + var);
+        if (!env->has(var)) error("Cannot export undefined variable: " + var);
         exportData[node->strValue]->addExport(var, env);
     }
 
@@ -142,10 +142,12 @@ FunctionData Executor::executeFunctionDefinition(
         auto primVal = c0->primitiveValue;
         auto strVal = c0->strValue;
 
-        Parameter param = { c->strValue, primVal == Primitive::NONE ? Type(strVal) : Type(primVal) };
-        if(c->children.size() > 1 && c->children[1]->type == ASTNode::Type::ARRAY_ASSIGN) {
-            param.vararg = true;
-        }
+
+        Parameter param = {
+            c->strValue,
+            primVal == Primitive::NONE ? Type(strVal) : Type(primVal),
+            c->children.size() > 1 && c->children[1]->type == ASTNode::Type::ARRAY_ASSIGN
+        };
         params.push_back(param);
     }
 
@@ -197,7 +199,7 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
 
             const auto iterableValue = evaluateExpression(iterableExpr, localEnv);
             if(iterableValue.type.kind != BaseType::Array) {
-                throw std::runtime_error("Expected array for enhanced for loop");
+                error("Expected array for enhanced for loop");
             }
             for (const auto &item : iterableValue.point<Array>()->elements) {
                 localEnv->set(varDecl->strValue, item);
@@ -268,9 +270,9 @@ TypedValue Executor::arrayOperation(
     return TypedValue(arr, arr->elementType.array());
 }
 
-void parseArg(std::shared_ptr<Environment> env, Parameter* param, std::shared_ptr<TypedValue> arg, int i) {
+void Executor::parseArg(std::shared_ptr<Environment> env, Parameter* param, std::shared_ptr<TypedValue> arg, int i) {
     if(!param->type.match(arg->type))
-        throw std::runtime_error("Expected type " + param->type.toString() + " but got " + arg->type.toString());
+        error("Expected type " + param->type.toString() + " but got " + arg->type.toString());
     env->set(param->ident, *arg);
 }
 
@@ -282,9 +284,13 @@ std::shared_ptr<Function> Executor::createFunction(
         [this, funcData, closureEnv](const std::vector<std::shared_ptr<TypedValue>> &args) {
             auto local = std::make_shared<Environment>(closureEnv);
 
+            if(args.size() < funcData->params.size()) {
+                error("Too few arguments provided for function");
+            }
+
             for (size_t i = 0; i < args.size(); ++i) {
                 if (i >= funcData->params.size()) {
-                    throw std::runtime_error("Too many arguments provided for function");
+                    error("Too many arguments provided for function");
                 }
 
                 auto &param = funcData->params[i];
@@ -293,8 +299,8 @@ std::shared_ptr<Function> Executor::createFunction(
                     varargArray->elementType = param.type;
 
                     while (i < args.size()) {
-                        if (!args[i]->type.match(param.type)) {
-                            throw std::runtime_error(
+                        if (!param.type.match(args[i]->type)) {
+                            error(
                                 "Expected type " + param.type.toString() + 
                                 " but got " + args[i]->type.toString()
                             );
@@ -304,8 +310,8 @@ std::shared_ptr<Function> Executor::createFunction(
                     }
                     local->set(param.ident, TypedValue(varargArray, param.type.array()));
                 } else {
-                    if (!args[i]->type.match(param.type)) {
-                        throw std::runtime_error(
+                    if (!param.type.match(args[i]->type)) {
+                        error(
                             "Expected type " + param.type.toString() + 
                             " but got " + args[i]->type.toString()
                         );
@@ -317,7 +323,7 @@ std::shared_ptr<Function> Executor::createFunction(
             ReturnValue r = executeNode(funcData->body, local);
 
             if (!funcData->retType.match(r.value.type)) {
-                throw std::runtime_error(
+                error(
                     "Function return type mismatch - got " + r.value.type.toString() + 
                     " but expected " + funcData->retType.toString()
                 );
@@ -330,19 +336,19 @@ std::shared_ptr<Function> Executor::createFunction(
 
 std::shared_ptr<Function> Executor::createNativeFunction(std::string name, FunctionData funcData, ENV env) {
     if(env->nativeInqueries.find(name) == env->nativeInqueries.end())
-        throw std::runtime_error("Unable to link native function: " + name);
+        error("Unable to link native function: " + name);
     auto nf = env->nativeInqueries[name];
     return std::make_shared<Function>(Function{
         [this, funcData, nf, env](const std::vector<std::shared_ptr<TypedValue>> &args){
             std::unordered_map<std::string, TypedValue> params;
             for (size_t i = 0; i < funcData->params.size() && i < args.size(); ++i) {
                 if(!funcData->params[i].type.match(args[i]->type))
-                    throw std::runtime_error("Expected type " + funcData->params[i].type.toString() + " but got " + args[1]->type.toString());
+                    error("Expected type " + funcData->params[i].type.toString() + " but got " + args[1]->type.toString());
                 params[funcData->params[i].ident] = *args[i];
             }
             ReturnValue r = nf(env, this, params);
             if(!funcData->retType.match(r.value.type)) {
-                throw std::runtime_error("Native function return type mismatch - got " + r.value.type.toString() + " but expected " + funcData->retType.toString());
+                error("Native function return type mismatch - got " + r.value.type.toString() + " but expected " + funcData->retType.toString());
             }
             return std::make_shared<TypedValue>(r.hasReturn ? r.value : TypedValue());
         }
@@ -370,7 +376,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
             auto idxNode = node->children[1];
 
             if (arrVal.type.kind != BaseType::Array) {
-                throw std::runtime_error("Attempted array access on non-array");
+                error("Attempted array access on non-array");
             }
 
             auto arr = arrVal.get<std::shared_ptr<Array>>();
@@ -385,7 +391,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
             auto valNode = node->children[2];
 
             if (arrVal.type.kind != BaseType::Array) {
-                throw std::runtime_error("Attempted array assignment on non-array");
+                error("Attempted array assignment on non-array");
             }
 
             auto arr = arrVal.get<std::shared_ptr<Array>>();
@@ -411,7 +417,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
             for (auto &child : node->children) {
                 if (child->type == ASTNode::Type::RANGE) {
                     if (firstValSet && !firstVal.type.match(BaseType::Int))
-                        throw std::runtime_error("RANGE literal is only allowed for integer arrays");
+                        error("RANGE literal is only allowed for integer arrays");
 
                     int start = getIntValue(eval(child->children[0]));
                     int end   = getIntValue(eval(child->children[1]));
@@ -429,7 +435,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
                         arr->elementType = val.type;
                         firstValSet = true;
                     } else if (!val.type.match(arr->elementType)) {
-                        throw std::runtime_error(
+                        error(
                             "Array literal elements must have the same type: got " +
                             val.type.toString() + " but expected " + arr->elementType.toString()
                         );
@@ -446,7 +452,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
         case ASTNode::Type::CALL: {
             auto calleeVal = eval(node->children[0]);
             if (!calleeVal.type.match(BaseType::Function))
-                throw std::runtime_error("Attempted to call a non-function value");
+                error("Attempted to call a non-function value");
             std::vector<std::shared_ptr<TypedValue>> args;
             for (size_t i = 1; i < node->children.size(); ++i) args.push_back(std::make_shared<TypedValue>(eval(node->children[i])));
             return *calleeVal.get<std::shared_ptr<Function>>()->fn(args);
@@ -470,7 +476,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
                 case MULTIPLY: {
                     if(lhs.type.kind != BaseType::String) break;
                     if(rhs.type.kind != BaseType::Int) 
-                        throw std::runtime_error("Cannot multiply a string with a non-integer");
+                        error("Cannot multiply a string with a non-integer");
                     int amt = rhs.get<int>();
                     std::string left = lhs.get<std::string>();
                     std::ostringstream str;
@@ -492,7 +498,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
                 case GREATER:       return TypedValue(left > right);
                 case LESS_EQUAL:    return TypedValue(left <= right);
                 case GREATER_EQUAL: return TypedValue(left >= right);
-                default: throw std::runtime_error("Unsupported binary op");
+                default: error("Unsupported binary op");
             }
         }
 
@@ -502,7 +508,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
                 case MINUS: return TypedValue(-val);
                 case BITWISE_NOT: return TypedValue(~val);
                 case NOT: return TypedValue(!val);
-                default: throw std::runtime_error("Unsupported unary op");
+                default: error("Unsupported unary op");
             }
         }
 
@@ -527,6 +533,6 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
 
 
         default:
-            throw std::runtime_error("Unsupported expression type: " + std::to_string(static_cast<int>(node->type)));
+            error("Unsupported expression type: " + std::to_string(static_cast<int>(node->type)));
     }
 }

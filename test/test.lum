@@ -1,6 +1,6 @@
 import "outstream";
 
-fin test(string ...args) {
+fin test(string format, unknown ...args) {
     int length = args.length;
     for(int i=0;i<length;i++) {
         print(args[i]);
@@ -10,18 +10,10 @@ fin test(string ...args) {
     }
 }
 
-struct Bob {
-    int age;
-    string name;
-};
-
 fin main() -> int {
 
-    Bob bob = { age: 30, "Bob 1" };
-    bob.age = 50;
-    println(bob);
-
-    int[] x = [1,2,3,4,5];
-    test("hi\n");
+    string str = "Hello, World!";
+    println(str.length);
+    
     return 0;
 }

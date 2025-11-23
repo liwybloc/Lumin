@@ -30,6 +30,8 @@ enum class Primitive {
     INT,
     BOOL,
     STRING,
+
+    UNKNOWN,
 };
 
 struct Token {

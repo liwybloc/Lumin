@@ -247,7 +247,7 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
                 if (depth!= 0)
                     p->error("Export statements are only allowed at top-level");
 
-                if(!p->match(Token::Type::IDENTIFIER) && (!p->match(Token::Type::KEYWORD) || p->peek().value != "fin") && !p->match(Token::Type::PRIMITIVE)) {
+                if(!p->match(Token::Type::IDENTIFIER) && (!p->match(Token::Type::KEYWORD) || (p->peek().value != "fin" && p->peek().value != "native")) && !p->match(Token::Type::PRIMITIVE)) {
                     p->error("Expected function, type, or primitive after export keyword");
                 }
                 

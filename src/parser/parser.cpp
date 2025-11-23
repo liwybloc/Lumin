@@ -26,10 +26,8 @@ std::shared_ptr<ASTNode> Parser::parseWithPragma(const std::shared_ptr<ASTNode> 
     Parser tempParser(currentTokens, currentFile);
     tempParser.parent = this;
 
-    tempParser.importBlock = makeTypedNode(ASTNode::Type::IMPORT_BLOCK, 0);
-    pragmaNode->children.push_back(tempParser.importBlock);
-    tempParser.exportBlock = makeTypedNode(ASTNode::Type::IMPORT_BLOCK, 0);
-    pragmaNode->children.push_back(tempParser.exportBlock);
+    pragmaNode->children.push_back(tempParser.importBlock = makeTypedNode(ASTNode::Type::IMPORT_BLOCK, 0));
+    pragmaNode->children.push_back(tempParser.exportBlock = makeTypedNode(ASTNode::Type::IMPORT_BLOCK, 0));
 
     while (!tempParser.match(Token::Type::END_OF_FILE)) {
         auto stmt = tempParser.parseStatement(0);
@@ -288,6 +286,7 @@ std::shared_ptr<ASTNode> Parser::parseExpression() {
 
 std::shared_ptr<ASTNode> Parser::parsePrimary() {
     const Token &tok = peek();
+
     if (tok.type == Token::Type::NUMBER) {
         consume();
         auto node = makeTypedNode(ASTNode::Type::NUMBER, 1);

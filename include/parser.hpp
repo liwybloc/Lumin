@@ -174,7 +174,6 @@ private:
     std::shared_ptr<ASTNode> parseStructInitializer(const Token &nameTok, const std::string type);
     std::shared_ptr<ASTNode> parseIdentifier(const Token &ident, bool dataBit);
     std::shared_ptr<ASTNode> parseStatement(int depth, bool dataBit = false);
-    std::shared_ptr<ASTNode> parseOptionalNdarrayShape();
     KWMAP initKwMap();
     std::shared_ptr<ASTNode> parseBlock(int depth);
     std::shared_ptr<ASTNode> parseExpression();

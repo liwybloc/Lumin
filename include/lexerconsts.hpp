@@ -39,6 +39,7 @@ const std::unordered_map<std::string, Primitive> primitives = {
     {"int", Primitive::INT},
     {"bool", Primitive::BOOL},
     {"string", Primitive::STRING},
+    {"unknown", Primitive::UNKNOWN},
 };
 
 const std::unordered_map<std::string, BinaryOp> binopMap = {
