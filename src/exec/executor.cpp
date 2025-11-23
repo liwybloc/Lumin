@@ -479,10 +479,6 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
                     return TypedValue(str.str());
                 }
             }
-            printValue(&std::cout, lhs);
-            printf(" ");
-            printValue(&std::cout, rhs);
-            printf("\n");
             int left = getIntValue(lhs);
             int right = getIntValue(rhs);
             switch(node->binopValue) {

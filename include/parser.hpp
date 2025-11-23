@@ -9,6 +9,9 @@
 #include <cstdint>
 #include <sstream>
 #include <functional>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 struct ASTNode {
     enum class Type {
@@ -83,7 +86,7 @@ using KWMAP = std::unordered_map<std::string, KwHandler>;
 class Parser {
 public:
     explicit Parser(const std::vector<Token> &tokens, std::string fileName)
-        : tokens(tokens), fileName(fileName), kwMap(initKwMap()), current(0) {}
+        : tokens(tokens), fileName(fs::path(fileName).filename().string()), kwMap(initKwMap()), current(0) {}
 
     std::shared_ptr<ASTNode> parseProgram();
 
@@ -115,14 +118,50 @@ private:
     std::string fileName;
     KWMAP kwMap;
 
-    const Token &peek(size_t n = 0) const;
-    const Token &consume(int amount = 1);
-    bool match(Token::Type type, int offset = 0);
-    bool matchMultiple(Token::Type type, int amount);
-    Token expectMultiple(const std::vector<Token::Type> &types, const std::string &err);
-    Token expect(Token::Type type, const std::string &err, bool doConsume = true);
+    const Token &peek(size_t n = 0) const {
+        if (current + n >= tokens.size()) return tokens.back();
+        return tokens[current + n];
+    }
 
-    void error(const std::string &msg) const;
+    const Token &consume(int amount = 1) {
+        if(amount == 1) {
+            if (current >= tokens.size()) return tokens.back();
+            return tokens[current++];
+        }
+        for(int i=0;i<amount - 1;i++) {
+            consume();
+        }
+        return consume();
+    }
+
+    bool match(Token::Type type, int offset = 0) {
+        return peek(offset).type == type;
+    }
+    bool matchMultiple(Token::Type type, int amount) {
+        for(int i=0;i<amount;i++) {
+            if (!match(type, i)) return false;
+        }
+        return true;
+    }
+
+    Token expectMultiple(const std::vector<Token::Type> &types, const std::string &err) {
+        for (const auto &t : types) {
+            if (match(t)) return consume();
+        }
+        error(err);
+        return tokens.back();
+    }
+
+    Token expect(Token::Type type, const std::string &err, bool doConsume) {
+        if (peek().type != type) {
+            error(err);
+        }
+        return doConsume ? consume() : peek();
+    }
+
+    void error(const std::string &msg) const {
+        throw std::runtime_error(msg + " at " + fileName + ":" + std::to_string(peek().lineIndex) + ":" + std::to_string(peek().colIndex));
+    }
 
     std::shared_ptr<ASTNode> parseWithPragma(const std::shared_ptr<ASTNode> &programNode, const std::string &currentFile, const std::vector<Token> &currentTokens);
 
@@ -132,6 +171,8 @@ private:
     std::shared_ptr<ASTNode> buildSizedArrayDeclareNode(const Token &typeToken, std::shared_ptr<ASTNode> sizeNode, bool isPrimitive);
     std::shared_ptr<ASTNode> buildTypeNodeFromToken(const Token &typeToken);
     std::shared_ptr<ASTNode> parseDeclarationWithTypeAndName(const Token &typeToken, const Token &nameToken, bool isPrimitive, const std::shared_ptr<ASTNode> &arraySize, bool isArray, bool skipSemicolon);
+    std::shared_ptr<ASTNode> parseStructInitializer(const Token &nameTok, const std::string type);
+    std::shared_ptr<ASTNode> parseIdentifier(const Token &ident, bool dataBit);
     std::shared_ptr<ASTNode> parseStatement(int depth, bool dataBit = false);
     std::shared_ptr<ASTNode> parseOptionalNdarrayShape();
     KWMAP initKwMap();

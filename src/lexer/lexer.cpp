@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <numeric>
 #include <regex>
+#include <fstream>
 
 Lexer::Lexer(const std::string &source) : source(source), current(0), lineIndex(1), colIndex(1) {}
 
@@ -95,7 +96,7 @@ void Lexer::applyHeader(const std::string &header) {
     if(args.empty()) throw std::runtime_error("Empty header");
 
     const std::string cmd = shift(args);
-    
+
     if(cmd == "alias") {
         static const std::regex aliasPattern(R"(alias\s+\"([^\"]+)\"\s+as\s+\"([^\"]+)\")");
 
@@ -165,7 +166,6 @@ std::vector<Token> Lexer::tokenize() {
 
         bool matched = false;
 
-        // Operator matching
         for (const auto &entry : sortedOps) {
             const std::string &opString = entry.first;
             const Token::Type type = entry.second;
@@ -190,7 +190,7 @@ std::vector<Token> Lexer::tokenize() {
             break;
         }
         if (matched) continue;
-        
+
         if (peek() == '+') {
             simplitiveBinOp(&tokens, "+", Token::Type::PLUS, tokenLine, tokenCol);
             continue;
@@ -217,7 +217,6 @@ std::vector<Token> Lexer::tokenize() {
             continue;
         }
 
-        // String literal
         if (peek() == '"') {
             consume();
             std::string str;
@@ -242,7 +241,6 @@ std::vector<Token> Lexer::tokenize() {
             continue;
         }
 
-        // Number literal
         if (std::isdigit(peek()) || (peek() == '-' && std::isdigit(peek(1)))) {
             std::string number;
             if (peek() == '-') number += consume();
@@ -251,13 +249,8 @@ std::vector<Token> Lexer::tokenize() {
             while (std::isdigit(peek()) || peek() == '.') {
                 char c = peek();
                 if (c == '.') {
-                    if(peek() == '.') {
-                        // it's a range
-                        goto out;
-                    }
-                    if (decimal) {
-                        throw std::runtime_error("Multiple decimal points in number");
-                    }
+                    if(peek() == '.') goto out;
+                    if (decimal) throw std::runtime_error("Multiple decimal points in number");
                     decimal = true;
                 }
                 number += c;
@@ -290,5 +283,11 @@ std::vector<Token> Lexer::tokenize() {
     }
 
     tokens.push_back(Token{Token::Type::END_OF_FILE, "", lineIndex, colIndex});
+
+    std::ofstream debug("lexDebug.txt");
+    for (const auto &t : tokens) {
+        debug << t.value << " " << static_cast<int>(t.type) << " " << t.lineIndex << " " << t.colIndex << "\n";
+    }
+
     return tokens;
 }

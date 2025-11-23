@@ -37,3 +37,4 @@ CMakeFiles/**/*
 test/test.lmp
 test/astdebug.txt
 test/astdebug2.txt
+test/lexDebug.txt

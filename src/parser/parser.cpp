@@ -6,51 +6,6 @@
 #include <sstream>
 #include <functional>
 
-const Token &Parser::peek(size_t n) const {
-    if (current + n >= tokens.size()) return tokens.back();
-    return tokens[current + n];
-}
-
-const Token &Parser::consume(int amount) {
-    if(amount == 1) {
-        if (current >= tokens.size()) return tokens.back();
-        return tokens[current++];
-    }
-    for(int i=0;i<amount - 1;i++) {
-        consume();
-    }
-    return consume();
-}
-
-bool Parser::match(Token::Type type, int offset) {
-    return peek(offset).type == type;
-}
-bool Parser::matchMultiple(Token::Type type, int amount) {
-    for(int i=0;i<amount;i++) {
-        if (!match(type, i)) return false;
-    }
-    return true;
-}
-
-Token Parser::expectMultiple(const std::vector<Token::Type> &types, const std::string &err) {
-    for (const auto &t : types) {
-        if (match(t)) return consume();
-    }
-    error(err);
-    return tokens.back();
-}
-
-Token Parser::expect(Token::Type type, const std::string &err, bool doConsume) {
-    if (peek().type != type) {
-        error(err);
-    }
-    return doConsume ? consume() : peek();
-}
-
-void Parser::error(const std::string &msg) const {
-    throw std::runtime_error(msg + " at " + fileName + ":" + std::to_string(peek().lineIndex) + ":" + std::to_string(peek().colIndex));
-}
-
 std::string readFileContents(const std::string &filename) {
     std::ifstream file(filename);
     if (!file.is_open()) throw std::runtime_error("Cannot open file: " + filename);
@@ -165,6 +120,10 @@ std::shared_ptr<ASTNode> Parser::parseDeclarationWithTypeAndName(
     auto node = makeTypedNode(nodeType, 1);
     node->strValue = nameToken.value;
 
+    auto declareNew = makeTypedNode(ASTNode::Type::BOOL, 1);
+    declareNew->strValue = "1";
+    node->children.push_back(declareNew);
+
     if (!isPrimitive) {
         node->children.push_back(buildTypeNodeFromToken(typeToken));
     } else {
@@ -182,6 +141,98 @@ std::shared_ptr<ASTNode> Parser::parseDeclarationWithTypeAndName(
     return node;
 }
 
+std::shared_ptr<ASTNode> Parser::parseStructInitializer(const Token &nameTok, const std::string type) {
+    expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
+
+    auto initNode = makeTypedNode(ASTNode::Type::STRUCT_ASSIGNMENT, 0);
+    initNode->strValue = nameTok.value;
+
+    if(type != "") {
+        auto typeNode = makeTypedNode(ASTNode::Type::STRING, 1);
+        typeNode->strValue = type;
+        initNode->children.push_back(typeNode);
+    }
+
+    while (!match(Token::Type::RBRACE)) {
+        if (match(Token::Type::IDENTIFIER) && match(Token::Type::COLON, 1)) {
+            auto member = consume().value;
+            consume();
+            auto assign = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
+            assign->strValue = member;
+            assign->children.push_back(parseExpression());
+            initNode->children.push_back(assign);
+        } else {
+            initNode->children.push_back(parseExpression());
+        }
+        if (match(Token::Type::COMMA)) consume();
+    }
+
+    expect(Token::Type::RBRACE, "Expected '}' after struct initializer", true);
+    return initNode;
+}
+
+std::shared_ptr<ASTNode> Parser::parseIdentifier(const Token &ident, bool dataBit) {
+    switch(peek(1).type) {
+        case Token::Type::LBRACE: {
+            consume();
+            consume();
+
+            std::vector<std::shared_ptr<ASTNode>> ndarrayShape;
+            while(!match(Token::Type::RBRACE)) {
+                ndarrayShape.push_back(parseExpression());
+                if(match(Token::Type::COMMA)) consume();
+            }
+            expect(Token::Type::RBRACE, "Expected '}' after NDArray declaration", true);
+
+            int selfRefLevel = 0;
+            if(match(Token::Type::NOT)) {
+                consume();
+                selfRefLevel++;
+                if(match(Token::Type::NOT)) {
+                    consume();
+                    selfRefLevel++;
+                    if(match(Token::Type::NOT)) {
+                        throw std::runtime_error("Invalid self-reference level");
+                    }
+                }
+            }
+
+            std::shared_ptr<ASTNode> initNode = nullptr;
+            if (match(Token::Type::EQUAL)) {
+                consume();
+                initNode = parseExpression();
+            }
+
+            auto node = makeTypedNode(ASTNode::Type::NDARRAY_ASSIGN, 1);
+            node->strValue = ident.value;
+            auto effNode = makeTypedNode(ASTNode::Type::NUMBER, 1);
+            effNode->strValue = std::to_string(selfRefLevel);
+            node->children.push_back(effNode);
+            for(auto &shape : ndarrayShape) {
+                node->children.push_back(shape);
+            }
+            if (initNode != nullptr) node->children.push_back(initNode);
+
+            expect(Token::Type::SEMICOLON, "Expected ';' after NDArray assignment", true);
+            return node;
+        }
+        case Token::Type::IDENTIFIER: {
+            consume();
+            const Token nameTok = consume(); // variable name
+            bool isArray = false;
+            auto arraySize = parseOptionalArraySize(isArray);
+            if (match(Token::Type::EQUAL)) {
+                consume();
+                auto initNode = parseStructInitializer(nameTok, ident.value);
+                expect(Token::Type::SEMICOLON, "Expected ';' after struct declaration", true);
+                return initNode;
+            }
+            return parseDeclarationWithTypeAndName(ident, nameTok, false, arraySize, isArray, dataBit);
+        }
+    }
+    return nullptr;
+}
+
 std::shared_ptr<ASTNode> Parser::parseStatement(int depth, bool dataBit) {
     const Token &tok = peek();
 
@@ -197,98 +248,11 @@ std::shared_ptr<ASTNode> Parser::parseStatement(int depth, bool dataBit) {
             return parseDeclarationWithTypeAndName(typeTok, nameTok, true, arraySize, isArray, dataBit);
         }
 
-        case Token::Type::IDENTIFIER:
-            if(match(Token::Type::EQUAL, 1)) {
-                auto nameTok = consume();
-                consume();
-                auto node = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
-                auto value = parseExpression();
-                node->strValue = nameTok.value;
-                node->children.push_back(value);
-                expect(Token::Type::SEMICOLON, "Expected ';' after assignment", true);
-                return node;
-            }
-            if (match(Token::Type::LBRACE, 1)) {
-                const Token nameTok = consume();
-                consume(); // consume {
-
-                std::vector<std::shared_ptr<ASTNode>> ndarrayShape;
-                while(!match(Token::Type::RBRACE)) {
-                    ndarrayShape.push_back(parseExpression());
-                    if(match(Token::Type::COMMA)) consume();
-                }
-                expect(Token::Type::RBRACE, "Expected '}' after NDArray declaration", true);
-
-                int selfRefLevel = 0;
-                if(match(Token::Type::NOT)) {
-                    consume();
-                    selfRefLevel++;
-                    if(match(Token::Type::NOT)) {
-                        consume();
-                        selfRefLevel++;
-                        if(match(Token::Type::NOT)) {
-                            throw std::runtime_error("Invalid self-reference level");
-                        }
-                    }
-                }
-
-                std::shared_ptr<ASTNode> initNode = nullptr;
-                if (match(Token::Type::EQUAL)) {
-                    consume();
-                    initNode = parseExpression();
-                }
-
-                auto node = makeTypedNode(ASTNode::Type::NDARRAY_ASSIGN, 1);
-                node->strValue = nameTok.value;
-                auto effNode = makeTypedNode(ASTNode::Type::NUMBER, 1);
-                effNode->strValue = std::to_string(selfRefLevel);
-                node->children.push_back(effNode);
-                for(auto &shape : ndarrayShape) {
-                    node->children.push_back(shape);
-                }
-                if (initNode != nullptr) node->children.push_back(initNode);
-
-                expect(Token::Type::SEMICOLON, "Expected ';' after NDArray assignment", true);
-                return node;
-            }
-
-            if (match(Token::Type::IDENTIFIER, 1)) {
-                const Token typeTok = consume(); // type
-                const Token nameTok = consume(); // variable name
-                bool isArray = false;
-                auto arraySize = parseOptionalArraySize(isArray);
-                if (match(Token::Type::EQUAL)) {
-                    consume();
-
-                    expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
-
-                    auto initNode = makeTypedNode(ASTNode::Type::STRUCT_ASSIGNMENT, 0);
-                    initNode->strValue = nameTok.value;
-                    auto type = makeTypedNode(ASTNode::Type::STRING, 1);
-                    type->strValue = typeTok.value;
-                    initNode->children.push_back(type);
-
-                    while (!match(Token::Type::RBRACE)) {
-                        if(match(Token::Type::IDENTIFIER) && match(Token::Type::COLON, 1)) {
-                            auto assign = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
-                            assign->strValue = consume().value; // variable name
-                            consume(); // :
-                            assign->children.push_back(parseExpression()); // value
-                            initNode->children.push_back(assign);
-                        } else {
-                            initNode->children.push_back(parseExpression());
-                        }
-                        if (match(Token::Type::COMMA)) consume();
-                    }
-
-                    expect(Token::Type::RBRACE, "Expected '}' after struct initializer", true);
-                    expect(Token::Type::SEMICOLON, "Expected ';' after struct declaration", true);
-
-                    return initNode;
-                }
-                return parseDeclarationWithTypeAndName(typeTok, nameTok, false, arraySize, isArray, dataBit);
-            }
+        case Token::Type::IDENTIFIER: {
+            auto val = parseIdentifier(peek(), dataBit);
+            if(val != nullptr) return val;
             break;
+        }
 
         case Token::Type::KEYWORD: {
             const std::string kw = consume().value;
@@ -409,6 +373,24 @@ std::shared_ptr<ASTNode> Parser::parsePrimary() {
         identNode->strValue = tok.value;
 
         std::shared_ptr<ASTNode> node = identNode;
+
+        if(match(Token::Type::EQUAL)){
+            consume();
+
+            if (match(Token::Type::LBRACE)) {
+                auto initNode = parseStructInitializer(tok, "");
+                expect(Token::Type::SEMICOLON, "Expected ';' after assignment", true);
+                return initNode;
+            }
+
+            auto node = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
+            auto modify = makeTypedNode(ASTNode::Type::BOOL, 1);
+            modify->strValue = "0";
+            node->children.push_back(modify);
+            node->strValue = tok.value;
+            node->children.push_back(parseExpression());
+            return node;
+        }
 
         while (true) {
             if (match(Token::Type::LBRACKET)) {

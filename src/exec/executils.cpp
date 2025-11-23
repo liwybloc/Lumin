@@ -136,7 +136,13 @@ void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, ENV env) {
 
 TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV env) {
     const std::string varName = node->strValue;
-    const std::string structName = node->children[0]->strValue;
+
+    int idx = 0;
+    bool hasFlag = (node->children.size() > 0 && node->children[0]->type == ASTNode::Type::BOOL);
+    if (hasFlag) idx = 1;
+
+    const std::string structName = node->children[idx]->strValue;
+    idx++;
 
     auto structType = env->getType(structName);
     if (!structType)
@@ -145,12 +151,15 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV e
     auto structDef = std::static_pointer_cast<StructType>(structType);
     auto instance = std::make_shared<Struct>(structName, structType);
 
-    if (node->children.size() - 1 != structDef->fields.size())
+    std::vector<std::shared_ptr<ASTNode>> args;
+    for (int i = idx; i < (int)node->children.size(); ++i) args.push_back(node->children[i]);
+
+    if (args.size() != structDef->fields.size())
         throw std::runtime_error("Struct assignment has incorrect number of arguments");
 
     for (size_t i = 0; i < structDef->fields.size(); ++i) {
         auto &field = structDef->fields[i];
-        auto argNode = node->children[i + 1];
+        auto argNode = args[i];
         TypedValue val;
 
         if (argNode->type == ASTNode::Type::PRIMITIVE_ASSIGNMENT) {
@@ -198,17 +207,35 @@ TypedValue Executor::primitiveValue(const Primitive val) {
     }
 }
 
+static bool nodeHasDeclareFlag(const std::shared_ptr<ASTNode> &node, int &outIndex) {
+    outIndex = 0;
+    if (node->children.size() > 0 && node->children[0]->type == ASTNode::Type::BOOL) {
+        outIndex = 1;
+        return true;
+    }
+    return false;
+}
 TypedValue Executor::handleAssignment(
     std::shared_ptr<ASTNode> node,
     ENV env,
     Primitive primVal,
     bool modify
 ) {
-
-    TypedValue val;
+    int idx = 0;
+    bool hadFlag = nodeHasDeclareFlag(node, idx);
+    bool isDeclaration = false;
+    bool isModify = false;
+    
+    if (hadFlag) {
+        isDeclaration = (node->children[0]->strValue == "1");
+        isModify = !isDeclaration;
+    } else {
+        isDeclaration = !modify;
+        isModify = modify;
+    }
 
     auto inferArrayType = [this](const std::shared_ptr<ASTNode> &arrayNode, ENV env) -> Type {
-        if (arrayNode->children.empty()) return Type(BaseType::Array); // empty array defaults to array<nil>
+        if (arrayNode->children.empty()) return Type(BaseType::Array);
         TypedValue firstVal = evaluateExpression(arrayNode->children[0], env);
         Type elemType = firstVal.type;
 
@@ -219,13 +246,11 @@ TypedValue Executor::handleAssignment(
                     "Array literal contains mixed types: " + elemType.toString() + " vs " + nextVal.type.toString()
                 );
         }
-
         return elemType.array();
     };
 
-    // Struct property assignment
-    if (node->children.size() > 1 && node->children[0]->type == ASTNode::Type::READ) {
-        auto readNode = node->children[0];
+    if (node->children.size() > idx && node->children[idx]->type == ASTNode::Type::READ && node->strValue == "") {
+        auto readNode = node->children[idx];
         TypedValue parentVal = evaluateExpression(readNode->children[0], env);
 
         if (!parentVal.type.match(BaseType::Struct))
@@ -240,41 +265,84 @@ TypedValue Executor::handleAssignment(
             throw std::runtime_error("Struct does not have field: " + prop);
 
         env->pushSelfRef(it->second);
-        val = evaluateExpression(node->children[1], env);
+        TypedValue rhsVal = evaluateExpression(node->children[idx + 1], env);
 
-        if (node->children[1]->type == ASTNode::Type::ARRAY_LITERAL)
-            val.type = inferArrayType(node->children[1], env);
+        if (node->children[idx + 1]->type == ASTNode::Type::ARRAY_LITERAL) {
+            Type t = inferArrayType(node->children[idx + 1], env);
+            rhsVal.type = t;
+        }
 
-        if (!val.type.match(it->second.type))
+        if (!rhsVal.type.match(it->second.type))
             throw std::runtime_error("Incompatible types for assignment; expected " +
                                      it->second.type.toString() + " but got " +
-                                     val.type.toString() + " for field: " + prop);
+                                     rhsVal.type.toString() + " for field: " + prop);
 
-        it->second = val;
+        it->second = rhsVal;
         env->popSelfRef();
-        return val;
+        return rhsVal;
     }
 
-    // Normal variable assignment
-    if (modify) env->pushSelfRef(env->get(node->strValue));
-    val = node->children.empty() ? TypedValue(0) : evaluateExpression(node->children[0], env);
+    if (node->type == ASTNode::Type::STRUCT_ASSIGNMENT) {
+        int tIdx = idx;
+        if (tIdx >= (int)node->children.size()) {
+            throw std::runtime_error("Malformed struct declaration/assignment");
+        }
+        bool hasExplicitType = (node->children[tIdx]->type == ASTNode::Type::IDENTIFIER || node->children[tIdx]->type == ASTNode::Type::STRING);
+        if (hasExplicitType) {
+            return handleStructAssignment(node, env);
+        }
+    }
 
-    // Infer array type and override expected type
-    Type type;
-    if (!node->children.empty() && node->children[0]->type == ASTNode::Type::ARRAY_LITERAL)
-        type = inferArrayType(node->children[0], env);
-    else 
-        type = Type(primVal);
+    TypedValue val;
+    if (isModify) {
+        env->pushSelfRef(env->get(node->strValue));
+    }
 
-    if (!val.type.match(type))
+    if (node->children.size() > 0) {
+        if (hadFlag) {
+            int exprIndex = (int)node->children.size() - 1;
+            if (exprIndex >= idx && node->children[exprIndex] != nullptr)
+                val = evaluateExpression(node->children[exprIndex], env);
+            else
+                val = TypedValue(0);
+        } else {
+            val = node->children.empty() ? TypedValue(0) : evaluateExpression(node->children[0], env);
+        }
+    } else {
+        val = TypedValue(0);
+    }
+
+    Type expectedType;
+    if (!node->children.empty()) {
+        if (node->children.back()->type == ASTNode::Type::ARRAY_LITERAL) {
+            Type inferred = inferArrayType(node->children.back(), env);
+            val.type = inferred;
+            expectedType = inferred;
+        } else {
+            expectedType = isModify ? env->get(node->strValue).type : Type(primVal);
+        }
+    } else if (node->primitiveValue != Primitive::NONE) {
+        expectedType = Type(node->primitiveValue);
+    } else {
+        int tIndex = 1;
+        if (node->children.size() > (size_t)tIndex && node->children[tIndex]->type == ASTNode::Type::IDENTIFIER)
+            expectedType = Type(node->children[tIndex]->strValue);
+        else
+            expectedType = Type(Primitive::INT);
+    }
+
+    if (!val.type.match(expectedType))
         throw std::runtime_error("Incompatible types for assignment; expected " +
-                                 type.toString() + " but got " +
+                                 expectedType.toString() + " but got " +
                                  val.type.toString());
 
-    if (modify) env->modify(node->strValue, val);
-    else env->set(node->strValue, val);
+    if (isModify) {
+        env->modify(node->strValue, val);
+        env->popSelfRef();
+    } else {
+        env->set(node->strValue, val);
+    }
 
-    if (modify) env->popSelfRef();
     return val;
 }
 
