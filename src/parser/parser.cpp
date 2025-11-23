@@ -306,9 +306,7 @@ std::shared_ptr<ASTNode> Parser::parseStatement(int depth, bool dataBit) {
 
     auto expr = parseExpression();
     expect(Token::Type::SEMICOLON, "Expected ';' after expression", true);
-    auto node = makeTypedNode(ASTNode::Type::EXPRESSION_STATEMENT, 0);
-    node->children.push_back(expr);
-    return node;
+    return expr;
 }
 
 std::shared_ptr<ASTNode> Parser::parseBlock(int depth) {

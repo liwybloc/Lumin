@@ -356,7 +356,6 @@ std::string astTypeToString(ASTNode::Type type) {
         case ASTNode::Type::STRUCT_ASSIGNMENT: return "STRUCT_ASSIGNMENT";
         case ASTNode::Type::SIZED_ARRAY_DECLARE: return "SIZED_ARRAY_DECLARE";
         case ASTNode::Type::ELSE_STATEMENT: return "ELSE_STATEMENT";
-        case ASTNode::Type::EXPRESSION_STATEMENT: return "EXPRESSION_STATEMENT";
         case ASTNode::Type::BLOCK: return "BLOCK";
         case ASTNode::Type::CALL: return "CALL";
         case ASTNode::Type::IF_STATEMENT: return "IF_STATEMENT";

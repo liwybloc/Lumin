@@ -201,7 +201,7 @@ TypedValue Executor::primitiveValue(const Primitive val) {
  TypedValue Executor::handleAssignment(
     std::shared_ptr<ASTNode> node,
     ENV env,
-    Type type,
+    Primitive primVal,
     bool modify
 ) {
     TypedValue val;
@@ -223,7 +223,7 @@ TypedValue Executor::primitiveValue(const Primitive val) {
     };
 
     // Struct property assignment
-    if (!node->children.empty() && node->children[0]->type == ASTNode::Type::READ) {
+    if (node->children.size() > 1 && node->children[0]->type == ASTNode::Type::READ) {
         auto readNode = node->children[0];
         TypedValue parentVal = evaluateExpression(readNode->children[0], env);
 
@@ -244,9 +244,6 @@ TypedValue Executor::primitiveValue(const Primitive val) {
         if (node->children[1]->type == ASTNode::Type::ARRAY_LITERAL)
             val.type = inferArrayType(node->children[1], env);
 
-        // override expected type to match inferred array type
-        type = val.type;
-
         if (!val.type.match(it->second.type))
             throw std::runtime_error("Incompatible types for assignment; expected " +
                                      it->second.type.toString() + " but got " +
@@ -262,8 +259,11 @@ TypedValue Executor::primitiveValue(const Primitive val) {
     val = node->children.empty() ? TypedValue(0) : evaluateExpression(node->children[0], env);
 
     // Infer array type and override expected type
+    Type type;
     if (!node->children.empty() && node->children[0]->type == ASTNode::Type::ARRAY_LITERAL)
         type = inferArrayType(node->children[0], env);
+    else 
+        type = Type(primVal);
 
     if (!val.type.match(type))
         throw std::runtime_error("Incompatible types for assignment; expected " +

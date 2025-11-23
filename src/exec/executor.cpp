@@ -21,7 +21,13 @@ void Executor::printStruct(std::ostream *out, const std::shared_ptr<Struct> &st)
     int idx = 0;
     for (const auto &[name, val] : st->fields) {
         *out << name << ": ";
-        printValue(out, val);
+        if(val.type.kind == BaseType::String) {
+            *out << "\"";
+            printValue(out, val);
+            *out << "\"";
+        } else {
+            printValue(out, val);
+        }
         if (++idx < st->fields.size()) {
             *out << ", ";
         }
@@ -155,8 +161,7 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
         case ASTNode::Type::PROGRAM: executePragmas(node->children, env); return {};
         case ASTNode::Type::BLOCK: return executeBlock(node->children, std::make_shared<Environment>(env));
         case ASTNode::Type::STRUCT_DECLARE: handleStructDeclaration(node, env); return {};
-        case ASTNode::Type::EXPRESSION_STATEMENT: evaluateExpression(node->children[0], env); return {};
-        case ASTNode::Type::PRIMITIVE_ASSIGNMENT: handleAssignment(node, env, Type(node->primitiveValue), false); return {};
+        case ASTNode::Type::PRIMITIVE_ASSIGNMENT: handleAssignment(node, env, node->primitiveValue, false); return {};
         case ASTNode::Type::STRUCT_ASSIGNMENT: handleStructAssignment(node, env); return {};
         case ASTNode::Type::RETURN_STATEMENT:
             return ReturnValue(node->children.empty() ? TypedValue() : evaluateExpression(node->children[0], env));
@@ -355,7 +360,7 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
             if (env->hasSelfRef()) return env->currentSelfRef();
             return TypedValue();
 
-        case ASTNode::Type::PRIMITIVE_ASSIGNMENT: return handleAssignment(node, env, Type(node->primitiveValue), true);
+        case ASTNode::Type::PRIMITIVE_ASSIGNMENT: return handleAssignment(node, env, node->primitiveValue, true);
         case ASTNode::Type::STRUCT_ASSIGNMENT: return handleStructAssignment(node, env);
         case ASTNode::Type::NDARRAY_ASSIGN: return handleNDArrayAssignment(node, env);
 

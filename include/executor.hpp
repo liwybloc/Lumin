@@ -366,7 +366,7 @@ private:
     TypedValue handleReadAssignment(std::shared_ptr<ASTNode> node, ENV env, std::shared_ptr<ASTNode> valNode);
     TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property);
     TypedValue primitiveValue(const Primitive val);
-    TypedValue handleAssignment(std::shared_ptr<ASTNode> node, ENV env, Type type, bool modify);
+    TypedValue handleAssignment(std::shared_ptr<ASTNode> node, ENV env, Primitive primVal, bool modify);
     std::shared_ptr<Function> createFunction(FunctionData funcData, ENV closureEnv);
 };
 

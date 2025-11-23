@@ -27,7 +27,6 @@ struct ASTNode {
 
         PRIMITIVE_ASSIGNMENT,
         STRUCT_ASSIGNMENT,
-        EXPRESSION_STATEMENT,
 
         BLOCK,
         CALL,
