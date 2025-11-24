@@ -6,18 +6,19 @@ int Parser::getPrecedence(Token::Type type) const {
         case Token::Type::MULTIPLY:
         case Token::Type::DIVIDE:
         case Token::Type::MODULUS:
-            return 3;
+            return 4;
         case Token::Type::PLUS:
         case Token::Type::MINUS:
-            return 2;
+            return 3;
         case Token::Type::EQUAL:
         case Token::Type::COMPARISON:
         case Token::Type::LESS:
         case Token::Type::GREATER:
         case Token::Type::LESS_EQUAL:
         case Token::Type::GREATER_EQUAL:
-            return 1;
+            return 2;
         case Token::Type::AND:
+            return 1;
         case Token::Type::OR:
             return 0;
         default:

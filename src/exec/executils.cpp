@@ -184,13 +184,19 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV e
 }
 
 int Executor::getIntValue(const TypedValue &val) {
-    if(!val.type.match(BaseType::Int)) error("Expected integer value");
-    return val.get<int>();
+    switch(val.type.kind) {
+        case BaseType::Bool: return val.get<bool>() ? 1 : 0;
+        case BaseType::Int: return val.get<int>();
+        default: error("Expected integer value");
+    }
 }
 
 bool Executor::getBoolValue(const TypedValue &val) {
-    if(!val.type.match(BaseType::Bool)) error("Expected boolean value");
-    return val.get<bool>();
+    switch(val.type.kind) {
+        case BaseType::Bool: return val.get<bool>();
+        case BaseType::Int: return val.get<int>() != 0;
+        default: error("Expected boolean value");
+    }
 }
 
 std::string Executor::getStringValue(const TypedValue &val) {
@@ -423,4 +429,74 @@ TypedValue Executor::evaluateReadProperty(const TypedValue &target, const std::s
         default:
             error("Attempted READ on non-object");
     }
+}
+
+TypedValue Executor::evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs) {
+    switch (op) {
+        case PLUS: {
+            if(lhs.type.kind == BaseType::Int) {
+                const int L = getIntValue(lhs);
+                const int R = getIntValue(rhs);
+                return TypedValue(L + R);
+            }
+            std::ostringstream out;
+            out << lhs.get<std::string>();
+            if (rhs.type.kind != BaseType::String) {
+                printValue(&out, rhs);
+                return TypedValue(out.str());
+            }
+            out << rhs.get<std::string>();
+            return TypedValue(out.str());
+        }
+        case MULTIPLY: {
+            if(lhs.type.kind == BaseType::Int) {
+                const int L = getIntValue(lhs);
+                const int R = getIntValue(rhs);
+                return TypedValue(L * R);
+            }
+            const int amt = getIntValue(rhs);
+            const std::string base = getStringValue(lhs);
+            std::ostringstream out;
+            for (int i = 0; i < amt; ++i) out << base;
+            return TypedValue(out.str());
+        }
+        default: break;
+    }
+    error("Unsupported string binary op");
+}
+
+TypedValue Executor::evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs) {
+    const int L = getIntValue(lhs);
+    const int R = getIntValue(rhs);
+
+    switch (op) {
+        case MINUS:         return TypedValue(L - R);
+        case DIVIDE:        return TypedValue(L / R);
+        case MODULUS:       return TypedValue(L % R);
+        case BITWISE_NOT:   return TypedValue(~L);
+        case BITWISE_AND:   return TypedValue(L & R);
+        case BITWISE_OR:    return TypedValue(L | R);
+        case BITWISE_XOR:   return TypedValue(L ^ R);
+        default: break;
+    }
+    error("Unsupported arithmetic binary op");
+}
+
+TypedValue Executor::evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs) {
+    const bool L = getBoolValue(lhs);
+    const bool R = getBoolValue(rhs);
+
+    switch (op) {
+        case COMPARISON:    return TypedValue(L == R);
+        case LESS:          return TypedValue(L <  R);
+        case GREATER:       return TypedValue(L >  R);
+        case LESS_EQUAL:    return TypedValue(L <= R);
+        case GREATER_EQUAL: return TypedValue(L >= R);
+        case NOT:           return TypedValue(!L);
+        case AND:           return TypedValue(L && R);
+        case OR:            return TypedValue(L || R);
+        case NOT_EQUAL:     return TypedValue(L != R);
+        default: break;
+    }
+    error("Unsupported boolean binary op");
 }

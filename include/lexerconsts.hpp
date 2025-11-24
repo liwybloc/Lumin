@@ -43,6 +43,7 @@ const std::unordered_map<std::string, Primitive> primitives = {
 };
 
 const std::unordered_map<std::string, BinaryOp> binopMap = {
+    {"&&", AND}, {"||", OR}, {"==", COMPARISON}, {"!=", NOT_EQUAL},
     {"+", PLUS}, {"-", MINUS}, {"*", MULTIPLY}, {"/", DIVIDE}, {"%", MODULUS},
     {"&", BITWISE_AND}, {"|", BITWISE_OR}, {"^", BITWISE_XOR}, {"~", BITWISE_NOT},
     {"!", NOT}, {"==", COMPARISON}, {"<", LESS}, {">", GREATER},

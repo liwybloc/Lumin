@@ -459,47 +459,15 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
         }
 
         case ASTNode::Type::BINARY_OP: {
-            auto lhs = eval(node->children[0]);
-            auto rhs = eval(node->children[1]);
-            switch(node->binopValue) {
-                case PLUS: {
-                    if(lhs.type.kind != BaseType::String) break;
-                    std::ostringstream str;
-                    str << lhs.get<std::string>();
-                    if(rhs.type.kind != BaseType::String) {
-                        printValue(&str, rhs);
-                    } else {
-                        str << rhs.get<std::string>();
-                    }
-                    return TypedValue(str.str());
-                }
-                case MULTIPLY: {
-                    if(lhs.type.kind != BaseType::String) break;
-                    if(rhs.type.kind != BaseType::Int) 
-                        error("Cannot multiply a string with a non-integer");
-                    int amt = rhs.get<int>();
-                    std::string left = lhs.get<std::string>();
-                    std::ostringstream str;
-                    for(int i = 0; i < amt; ++i)
-                        str << left;
-                    return TypedValue(str.str());
-                }
-            }
-            int left = getIntValue(lhs);
-            int right = getIntValue(rhs);
-            switch(node->binopValue) {
-                case PLUS:          return TypedValue(left + right);
-                case MINUS:         return TypedValue(left - right);
-                case MULTIPLY:      return TypedValue(left * right);
-                case DIVIDE:        return TypedValue(left / right);
-                case MODULUS:       return TypedValue(left % right);
-                case COMPARISON:    return TypedValue(left == right);
-                case LESS:          return TypedValue(left < right);
-                case GREATER:       return TypedValue(left > right);
-                case LESS_EQUAL:    return TypedValue(left <= right);
-                case GREATER_EQUAL: return TypedValue(left >= right);
-                default: error("Unsupported binary op");
-            }
+            const auto lhs = eval(node->children[0]);
+            const auto rhs = eval(node->children[1]);
+            const auto op  = node->binopValue;
+
+            if (op < STRING_END) return evalBinaryStringOp    (op, lhs, rhs);
+            if (op < ARITH_END)  return evalBinaryArithmeticOp(op, lhs, rhs);
+            if (op < BOOL_END)   return evalBinaryBoolOp      (op, lhs, rhs);
+
+            error("Unsupported binary op");
         }
 
         case ASTNode::Type::UNARY_OP: {

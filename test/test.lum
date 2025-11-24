@@ -1,19 +1,7 @@
 import "outstream";
-
-fin test(string format, unknown ...args) {
-    int length = args.length;
-    for(int i=0;i<length;i++) {
-        print(args[i]);
-        if(i < length-1) {
-            print(" ");
-        }
-    }
-}
+import "filestream";
 
 fin main() -> int {
 
-    string str = "Hello, World!";
-    println(str.length);
-    
     return 0;
 }

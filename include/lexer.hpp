@@ -7,21 +7,35 @@
 #include <cstdint>
 
 enum BinaryOp {
+    // string-compatible ops
     PLUS,
-    MINUS,
     MULTIPLY,
+
+    STRING_END,
+
+    // numeric arithmetic
+    MINUS = STRING_END,
     DIVIDE,
     MODULUS,
-    COMPARISON,
+    BITWISE_NOT,
+    BITWISE_AND,
+    BITWISE_OR,
+    BITWISE_XOR,
+
+    ARITH_END,
+
+    // comparisons + logical ops
+    COMPARISON = ARITH_END,
     LESS,
     GREATER,
     LESS_EQUAL,
     GREATER_EQUAL,
     NOT,
-    BITWISE_NOT,
-    BITWISE_AND,
-    BITWISE_OR,
-    BITWISE_XOR,
+    AND,
+    OR,
+    NOT_EQUAL,
+
+    BOOL_END
 };
 
 enum class Primitive {

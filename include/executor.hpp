@@ -354,6 +354,9 @@ private:
     TypedValue readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property);
     TypedValue handleReadAssignment(std::shared_ptr<ASTNode> node, ENV env, std::shared_ptr<ASTNode> valNode);
     TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property);
+    TypedValue evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
+    TypedValue evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
+    TypedValue evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
     TypedValue primitiveValue(const Primitive val);
     TypedValue handleAssignment(std::shared_ptr<ASTNode> node, ENV env, Primitive primVal, bool modify);
     std::shared_ptr<Function> createFunction(FunctionData funcData, ENV closureEnv);
