@@ -6,21 +6,21 @@
 #include <algorithm>
 #include <fstream>
 
-Executor::Executor(std::shared_ptr<ASTNode> root) : root(root) {
+Executor::Executor(std::shared_ptr<ParsedASTNode> root) : root(root) {
     globalEnv = std::make_shared<Environment>();
 
     globalEnv->set("nil", TypedValue());
 
     std::ofstream debugFile("astdebug2.txt");
     if (debugFile.is_open()) {
-        debugFile << astToString(root).c_str();
+        debugFile << astToString(root->toAST()).c_str();
         debugFile.close();
     } else {
         std::cerr << "Failed to open astdebug2.txt for writing\n";
     }
 }
 
-TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, ENV env) {
+TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ParsedASTNode> node, ENV env) {
     int efficiency = std::stoi(node->children[0]->strValue);
 
     std::vector<int> shape;
@@ -30,7 +30,7 @@ TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, ENV 
     int totalElements = 1;
     for (auto dim : shape) totalElements *= dim;
 
-    std::shared_ptr<ASTNode> rhsNode = node->children.back();
+    std::shared_ptr<ParsedASTNode> rhsNode = node->children.back();
     auto resultArr = std::make_shared<Array>();
     resultArr->elementType = Type(Primitive::INT);
 
@@ -119,7 +119,7 @@ TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ASTNode> node, ENV 
 }
 
 
-void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, ENV env) {
+void Executor::handleStructDeclaration(std::shared_ptr<ParsedASTNode> node, ENV env) {
     std::string structName = node->strValue;
     std::shared_ptr<StructType> _struct = std::make_shared<StructType>(structName);
 
@@ -134,7 +134,7 @@ void Executor::handleStructDeclaration(std::shared_ptr<ASTNode> node, ENV env) {
     env->setType(structName, _struct);
 }
 
-TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV env) {
+TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node, ENV env) {
     const std::string varName = node->strValue;
 
     int idx = 0;
@@ -151,7 +151,7 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ASTNode> node, ENV e
     auto structDef = std::static_pointer_cast<StructType>(structType);
     auto instance = std::make_shared<Struct>(structName, structType);
 
-    std::vector<std::shared_ptr<ASTNode>> args;
+    std::vector<std::shared_ptr<ParsedASTNode>> args;
     for (int i = idx; i < (int)node->children.size(); ++i) args.push_back(node->children[i]);
 
     if (args.size() != structDef->fields.size())
@@ -213,7 +213,7 @@ TypedValue Executor::primitiveValue(const Primitive val) {
     }
 }
 
-static bool nodeHasDeclareFlag(const std::shared_ptr<ASTNode> &node, int &outIndex) {
+static bool nodeHasDeclareFlag(const std::shared_ptr<ParsedASTNode> &node, int &outIndex) {
     outIndex = 0;
     if (node->children.size() > 0 && node->children[0]->type == ASTNode::Type::BOOL) {
         outIndex = 1;
@@ -222,7 +222,7 @@ static bool nodeHasDeclareFlag(const std::shared_ptr<ASTNode> &node, int &outInd
     return false;
 }
 TypedValue Executor::handleAssignment(
-    std::shared_ptr<ASTNode> node,
+    std::shared_ptr<ParsedASTNode> node,
     ENV env,
     Primitive primVal,
     bool modify
@@ -240,7 +240,7 @@ TypedValue Executor::handleAssignment(
         isModify = modify;
     }
 
-    auto inferArrayType = [this](const std::shared_ptr<ASTNode> &arrayNode, ENV env) -> Type {
+    auto inferArrayType = [this](const std::shared_ptr<ParsedASTNode> &arrayNode, ENV env) -> Type {
         if (arrayNode->children.empty()) return Type(BaseType::Array);
         TypedValue firstVal = evaluateExpression(arrayNode->children[0], env);
         Type elemType = firstVal.type;
@@ -370,9 +370,9 @@ TypedValue Executor::readOnStruct(const std::shared_ptr<Struct> &str, const std:
 }
 
 TypedValue Executor::handleReadAssignment(
-    std::shared_ptr<ASTNode> readNode,
+    std::shared_ptr<ParsedASTNode> readNode,
     ENV env,
-    std::shared_ptr<ASTNode> valNode
+    std::shared_ptr<ParsedASTNode> valNode
 ) {
     if (readNode->type != ASTNode::Type::READ)
         error("Expected READ node for member assignment");
@@ -441,11 +441,7 @@ TypedValue Executor::evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, cons
             }
             std::ostringstream out;
             out << lhs.get<std::string>();
-            if (rhs.type.kind != BaseType::String) {
-                printValue(&out, rhs);
-                return TypedValue(out.str());
-            }
-            out << rhs.get<std::string>();
+            printValue(&out, rhs);
             return TypedValue(out.str());
         }
         case MULTIPLY: {
@@ -459,6 +455,14 @@ TypedValue Executor::evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, cons
             std::ostringstream out;
             for (int i = 0; i < amt; ++i) out << base;
             return TypedValue(out.str());
+        }
+        case NOT_EQUAL:
+        case COMPARISON: {
+            std::ostringstream left, right;
+            printValue(&left, lhs);
+            printValue(&right, rhs);
+            if(op == NOT_EQUAL) return TypedValue(left.str() != right.str());
+            else return TypedValue(left.str() == right.str());
         }
         default: break;
     }
@@ -477,6 +481,10 @@ TypedValue Executor::evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, 
         case BITWISE_AND:   return TypedValue(L & R);
         case BITWISE_OR:    return TypedValue(L | R);
         case BITWISE_XOR:   return TypedValue(L ^ R);
+        case LESS:          return TypedValue(L <  R);
+        case GREATER:       return TypedValue(L >  R);
+        case LESS_EQUAL:    return TypedValue(L <= R);
+        case GREATER_EQUAL: return TypedValue(L >= R);
         default: break;
     }
     error("Unsupported arithmetic binary op");
@@ -488,14 +496,9 @@ TypedValue Executor::evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const 
 
     switch (op) {
         case COMPARISON:    return TypedValue(L == R);
-        case LESS:          return TypedValue(L <  R);
-        case GREATER:       return TypedValue(L >  R);
-        case LESS_EQUAL:    return TypedValue(L <= R);
-        case GREATER_EQUAL: return TypedValue(L >= R);
         case NOT:           return TypedValue(!L);
         case AND:           return TypedValue(L && R);
         case OR:            return TypedValue(L || R);
-        case NOT_EQUAL:     return TypedValue(L != R);
         default: break;
     }
     error("Unsupported boolean binary op");

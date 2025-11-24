@@ -7,7 +7,7 @@
     },
     {
       "name": "keyword.control.lum",
-      "match": "\\b(fin|return|if|else|for|while|nil|import|export|as|native|throws|throw|link)\\b|#\\w+"
+      "match": "\\b(fin|return|if|else|for|while|nil|import|export|as|native|throws|throw|link|break|continue)\\b|#\\w+"
     },
     {
       "begin": "\\b(struct|throws|throw)\\b",

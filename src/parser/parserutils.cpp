@@ -1,5 +1,6 @@
 #include "parser.hpp"
 #include "parserutils.hpp"
+#include <executor.hpp>
 
 int Parser::getPrecedence(Token::Type type) const {
     switch(type) {
@@ -290,7 +291,17 @@ std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
                 auto node = makeTypedNode(ASTNode::Type::STRING, 1);
                 return node;
             }
-        }
+        },
+        { "continue", [](Parser* p, int depth) {
+            auto c = makeNode(ASTNode::Type::CONTINUE);
+            p->expect(Token::Type::SEMICOLON, "Expected semicolon after continue", true);
+            return c;
+        } },
+        { "break", [](Parser* p, int depth) {
+            auto b = makeNode(ASTNode::Type::BREAK);
+            p->expect(Token::Type::SEMICOLON, "Expected semicolon after break", true);
+            return b;
+        } },
     };
 }
 

@@ -42,6 +42,9 @@ struct ASTNode {
         NATIVE_STATEMENT,
         
         FOR_STATEMENT,
+        CONTINUE,
+        BREAK,
+
         ARRAY_LITERAL,
         ARRAY_ACCESS,
         ARRAY_ASSIGN,
@@ -63,20 +66,6 @@ struct ASTNode {
     Primitive primitiveValue = Primitive::NONE;
 
     std::vector<std::shared_ptr<ASTNode>> children;
-
-    std::shared_ptr<ASTNode> clone() const {
-        auto node = std::make_shared<ASTNode>();
-        node->type = type;
-        node->valueType = valueType;
-        node->binopValue = binopValue;
-        node->strValue = strValue;
-        node->retType = retType;
-        node->primitiveValue = primitiveValue;
-        for (const auto &child : children) {
-            node->children.push_back(child->clone());
-        }
-        return node;
-    }
 };
 
 class Parser;

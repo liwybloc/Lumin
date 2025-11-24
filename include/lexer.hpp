@@ -7,9 +7,11 @@
 #include <cstdint>
 
 enum BinaryOp {
-    // string-compatible ops
+    // many compatible ops
     PLUS,
     MULTIPLY,
+    COMPARISON,
+    NOT_EQUAL,
 
     STRING_END,
 
@@ -21,19 +23,17 @@ enum BinaryOp {
     BITWISE_AND,
     BITWISE_OR,
     BITWISE_XOR,
-
-    ARITH_END,
-
-    // comparisons + logical ops
-    COMPARISON = ARITH_END,
     LESS,
     GREATER,
     LESS_EQUAL,
     GREATER_EQUAL,
-    NOT,
+
+    ARITH_END,
+
+    // comparisons + logical ops
+    NOT = ARITH_END,
     AND,
     OR,
-    NOT_EQUAL,
 
     BOOL_END
 };

@@ -1,6 +1,6 @@
 link "outstream.dll";
 
-native fin _print(string message) -> nil;
+export native fin print(string message);
 
 export fin println(string message) {
     print(message);
@@ -8,5 +8,24 @@ export fin println(string message) {
 }
 
 export fin printf(string format, string ...args) {
-    
+    int length = format.length;
+    bool opened = false;
+    int argIndex = 0;
+    string output = "";
+    for (int i = 0; i < length; i++) {
+        if (format[i] == "{") {
+            opened = true;
+        } else if (opened && format[i] == "}") {
+            output += args[argIndex];
+            argIndex++;
+            opened++;
+        } else if (opened) {
+            opened = false;
+            output += format[i - 1];
+        } else {
+            opened = false;
+            output += format[i];
+        }
+    }
+    print(output);
 }

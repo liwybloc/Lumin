@@ -6,9 +6,8 @@ __declspec(dllexport)
 #endif
 
 void initPlugin(Environment& env, RegisterNative reg) {
-    reg(env, "_print", [](std::shared_ptr<Environment> env, Executor* exec, std::unordered_map<std::string, TypedValue> args) -> ReturnValue {
+    reg(env, "print", [](std::shared_ptr<Environment> env, Executor* exec, std::unordered_map<std::string, TypedValue> args) -> ReturnValue {
         std::cout << args["content"].get<std::string>();
         return ReturnValue();
     });
-
 }

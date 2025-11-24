@@ -17,6 +17,32 @@
 #include <algorithm>
 #include <cstddef>
 
+struct ParsedASTNode {
+
+    ASTNode::Type type;
+
+    BinaryOp binopValue;
+    std::string strValue;
+
+    std::string retType;
+
+    Primitive primitiveValue = Primitive::NONE;
+
+    std::vector<std::shared_ptr<ParsedASTNode>> children;
+
+    std::shared_ptr<ASTNode> toAST() const {
+        auto node = std::make_shared<ASTNode>();
+        node->type = type;
+        node->strValue = strValue;
+        node->primitiveValue = primitiveValue;
+        node->retType = retType;
+        for (const auto &child : children) {
+            node->children.push_back(child->toAST());
+        }
+        return node;
+    }
+};
+
 enum class BaseType { Int, Bool, String, Unknown, Array, Function, Struct, ExportData, NIL };
 
 struct StructType;
@@ -142,7 +168,7 @@ struct Function {
 struct _FunctionData {
     std::vector<Parameter> params;
     Type retType;
-    std::shared_ptr<ASTNode> body;
+    std::shared_ptr<ParsedASTNode> body;
 };
 using FunctionData = std::shared_ptr<_FunctionData>;
 
@@ -198,9 +224,10 @@ struct StructType {
 };
 
 struct ReturnValue {
-    bool hasReturn;
+    bool hasReturn = false, hasContinue = false, hasBreak = false;
     TypedValue value;
-    ReturnValue() : hasReturn(false), value(TypedValue()) {}
+    ReturnValue() : value(TypedValue()) {}
+    ReturnValue(bool cont, bool _break) : hasContinue(cont), hasBreak(_break), value(TypedValue()) {}
     ReturnValue(const TypedValue &v) : hasReturn(true), value(v) {}
 };
 
@@ -281,7 +308,7 @@ struct ExportData {
 
 class Executor {
 public:
-    explicit Executor(std::shared_ptr<ASTNode> root);
+    explicit Executor(std::shared_ptr<ParsedASTNode> root);
     void printArray(std::ostream *out, const std::shared_ptr<Array> &arr);
     void printStruct(std::ostream *out, const std::shared_ptr<Struct> &st);
     void printValue(std::ostream *out, const TypedValue &val);
@@ -293,7 +320,7 @@ public:
     }
 
     std::vector<int> getIndices(const std::shared_ptr<Array> &arr,
-                                const std::shared_ptr<ASTNode> &indicesNode,
+                                const std::shared_ptr<ParsedASTNode> &indicesNode,
                                 ENV env) {
         std::vector<int> indices;
 
@@ -322,43 +349,43 @@ public:
     std::string getStringValue(const TypedValue &val);
 
     TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices);
-    TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices, std::shared_ptr<ASTNode> valNode, ENV env);
+    TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices, std::shared_ptr<ParsedASTNode> valNode, ENV env);
     void parseArg(std::shared_ptr<Environment> env, Parameter *param, std::shared_ptr<TypedValue> arg, int i);
-    TypedValue evaluateExpression(std::shared_ptr<ASTNode> node, ENV env);
+    TypedValue evaluateExpression(std::shared_ptr<ParsedASTNode> node, ENV env);
 
 private:
-    std::shared_ptr<ASTNode> root;
+    std::shared_ptr<ParsedASTNode> root;
     ENV globalEnv;
 
     std::unordered_map<std::string, PExportData> exportData; 
-    std::unordered_map<std::string, std::shared_ptr<ASTNode>> pragmas;
+    std::unordered_map<std::string, std::shared_ptr<ParsedASTNode>> pragmas;
     std::vector<std::string> handlingModules;
 
     std::shared_ptr<Function> createNativeFunction(std::string name, FunctionData funcData, ENV env);
 
-    TypedValue handleNDArrayAssignment(std::shared_ptr<ASTNode> node, ENV env);
-    void handleStructDeclaration(std::shared_ptr<ASTNode> node, ENV env);
-    TypedValue handleStructAssignment(std::shared_ptr<ASTNode> node, ENV env);
+    TypedValue handleNDArrayAssignment(std::shared_ptr<ParsedASTNode> node, ENV env);
+    void handleStructDeclaration(std::shared_ptr<ParsedASTNode> node, ENV env);
+    TypedValue handleStructAssignment(std::shared_ptr<ParsedASTNode> node, ENV env);
 
-    void handleImports(std::vector<std::shared_ptr<ASTNode>> children, ENV env);
+    void handleImports(std::vector<std::shared_ptr<ParsedASTNode>> children, ENV env);
 
-    void executePragma(std::shared_ptr<ASTNode> node, ENV env);
+    void executePragma(std::shared_ptr<ParsedASTNode> node, ENV env);
 
-    void executePragmas(std::vector<std::shared_ptr<ASTNode>> children, ENV env);
+    void executePragmas(std::vector<std::shared_ptr<ParsedASTNode>> children, ENV env);
 
-    FunctionData executeFunctionDefinition(std::shared_ptr<ASTNode> node, ENV env);
+    FunctionData executeFunctionDefinition(std::shared_ptr<ParsedASTNode> node, ENV env);
 
-    ReturnValue executeNode(std::shared_ptr<ASTNode> node, ENV env, bool extraBit = false);
+    ReturnValue executeNode(std::shared_ptr<ParsedASTNode> node, ENV env, bool extraBit = false);
 
-    ReturnValue executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, ENV env);
+    ReturnValue executeBlock(const std::vector<std::shared_ptr<ParsedASTNode>> &nodes, ENV env);
     TypedValue readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property);
-    TypedValue handleReadAssignment(std::shared_ptr<ASTNode> node, ENV env, std::shared_ptr<ASTNode> valNode);
+    TypedValue handleReadAssignment(std::shared_ptr<ParsedASTNode> node, ENV env, std::shared_ptr<ParsedASTNode> valNode);
     TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property);
     TypedValue evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
     TypedValue evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
     TypedValue evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
     TypedValue primitiveValue(const Primitive val);
-    TypedValue handleAssignment(std::shared_ptr<ASTNode> node, ENV env, Primitive primVal, bool modify);
+    TypedValue handleAssignment(std::shared_ptr<ParsedASTNode> node, ENV env, Primitive primVal, bool modify);
     std::shared_ptr<Function> createFunction(FunctionData funcData, ENV closureEnv);
     template <typename T>
     TypedValue readOnArray(std::shared_ptr<T> arr, const std::string &property);

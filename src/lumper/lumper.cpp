@@ -135,9 +135,9 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
     for (const auto &c : node->children) encodeNode(c, out);
 }
 
-static std::shared_ptr<ASTNode> decodeNode(std::istream &in, uint32_t depth) {
+static std::shared_ptr<ParsedASTNode> decodeNode(std::istream &in, uint32_t depth) {
     if (depth > MAX_AST_DEPTH) throw std::runtime_error("AST depth exceeded safe limit");
-    auto n = std::make_shared<ASTNode>();
+    auto n = std::make_shared<ParsedASTNode>();
     uint8_t header = readByte(in);
     uint8_t tval = header >> 3;
     if (tval > TYPE_MAX_VALUE) throw std::runtime_error("Invalid node type");
@@ -217,7 +217,7 @@ void Lumper::lump(const std::string &loc) {
     out.write(outBuf.data(), csize);
 }
 
-std::shared_ptr<ASTNode> Lumper::unlump(const std::string &loc) {
+std::shared_ptr<ParsedASTNode> Lumper::unlump(const std::string &loc) {
     std::ifstream in(loc, std::ios::binary);
     if (!in) return nullptr;
 
@@ -242,7 +242,7 @@ std::shared_ptr<ASTNode> Lumper::unlump(const std::string &loc) {
     if (ds != dsize) throw std::runtime_error("Decompressed size mismatch");
 
     std::istringstream iss(std::string(dbuf.data(), ds));
-    auto root = std::make_shared<ASTNode>();
+    auto root = std::make_shared<ParsedASTNode>();
     root->type = ASTNode::Type::PROGRAM;
 
     uint32_t cc = readVarint(iss);

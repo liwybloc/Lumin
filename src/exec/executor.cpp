@@ -89,7 +89,7 @@ const std::unordered_map<std::string, std::function<void(ENV, Executor*)>>& getI
     return maps;
 }
 
-void Executor::handleImports(std::vector<std::shared_ptr<ASTNode>> children, ENV env) {
+void Executor::handleImports(std::vector<std::shared_ptr<ParsedASTNode>> children, ENV env) {
     const auto &maps = getImportMaps();
     for (auto &child : children) {
         const std::string &name = child->strValue;
@@ -108,7 +108,7 @@ void Executor::handleImports(std::vector<std::shared_ptr<ASTNode>> children, ENV
     }
 }
 
-void Executor::executePragma(std::shared_ptr<ASTNode> node, ENV env) {
+void Executor::executePragma(std::shared_ptr<ParsedASTNode> node, ENV env) {
     handlingModules.push_back(node->strValue);
     auto &children = node->children;
     handleImports(children[0]->children, env);
@@ -126,13 +126,13 @@ void Executor::executePragma(std::shared_ptr<ASTNode> node, ENV env) {
     handlingModules.pop_back();
 }
 
-void Executor::executePragmas(std::vector<std::shared_ptr<ASTNode>> children, ENV env) {
+void Executor::executePragmas(std::vector<std::shared_ptr<ParsedASTNode>> children, ENV env) {
     for (auto &child : children) pragmas[child->strValue] = child;
     executePragma(children.back(), env);
 }
 
 FunctionData Executor::executeFunctionDefinition(
-        std::shared_ptr<ASTNode> node,
+        std::shared_ptr<ParsedASTNode> node,
         ENV env)
 {
     std::vector<Parameter> params;
@@ -159,8 +159,10 @@ FunctionData Executor::executeFunctionDefinition(
     return std::make_shared<_FunctionData>(params, retType, node->children.back());
 }
 
-ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool extraBit) {
+ReturnValue Executor::executeNode(std::shared_ptr<ParsedASTNode> node, ENV env, bool extraBit) {
     switch (node->type) {
+        case ASTNode::Type::CONTINUE: return ReturnValue(true, false);
+        case ASTNode::Type::BREAK: return ReturnValue(false, true);
         case ASTNode::Type::PROGRAM: executePragmas(node->children, env); return {};
         case ASTNode::Type::BLOCK: return executeBlock(node->children, std::make_shared<Environment>(env));
         case ASTNode::Type::STRUCT_DECLARE: handleStructDeclaration(node, env); return {};
@@ -179,6 +181,7 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
             while (getBoolValue(evaluateExpression(node->children[0], env))) {
                 auto r = executeNode(node->children[1], env);
                 if (r.hasReturn) return r;
+                if (r.hasBreak) break;
             }
             return {};
         case ASTNode::Type::FOR_STATEMENT: {
@@ -188,6 +191,7 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
                 while (getBoolValue(evaluateExpression(node->children[1], localEnv))) {
                     auto r = executeNode(node->children[3], localEnv);
                     if (r.hasReturn) return r;
+                    if (r.hasBreak) break;
                     evaluateExpression(node->children[2], localEnv);
                 }
                 return {};
@@ -225,10 +229,10 @@ ReturnValue Executor::executeNode(std::shared_ptr<ASTNode> node, ENV env, bool e
     }
 }
 
-ReturnValue Executor::executeBlock(const std::vector<std::shared_ptr<ASTNode>> &nodes, ENV env) {
+ReturnValue Executor::executeBlock(const std::vector<std::shared_ptr<ParsedASTNode>> &nodes, ENV env) {
     for (auto &n : nodes) {
         auto r = executeNode(n, env);
-        if (r.hasReturn) return r;
+        if (r.hasReturn || r.hasBreak || r.hasContinue) return r;
     }
     return {};
 }
@@ -247,7 +251,7 @@ TypedValue Executor::arrayOperation(const std::shared_ptr<Array>& arr, const std
 TypedValue Executor::arrayOperation(
     const std::shared_ptr<Array>& arr,
     const std::vector<int>& indices,
-    std::shared_ptr<ASTNode> valNode,
+    std::shared_ptr<ParsedASTNode> valNode,
     ENV env
 ) {
     TypedValue val = evaluateExpression(valNode, env);
@@ -322,6 +326,9 @@ std::shared_ptr<Function> Executor::createFunction(
 
             ReturnValue r = executeNode(funcData->body, local);
 
+            if(r.hasBreak || r.hasContinue)
+                error("Unexpected break or continue statement in function");
+
             if (!funcData->retType.match(r.value.type)) {
                 error(
                     "Function return type mismatch - got " + r.value.type.toString() + 
@@ -355,8 +362,9 @@ std::shared_ptr<Function> Executor::createNativeFunction(std::string name, Funct
     });
 }
 
-TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) {
-    auto eval = [this, &env](std::shared_ptr<ASTNode> n){ return evaluateExpression(n, env); };
+TypedValue Executor::evaluateExpression(std::shared_ptr<ParsedASTNode> node, ENV env) {
+    printf("evaluating node: %s\n", astTypeToString(node->type).c_str());
+    auto eval = [this, &env](std::shared_ptr<ParsedASTNode> n){ return evaluateExpression(n, env); };
 
     switch (node->type) {
         case ASTNode::Type::NUMBER: return TypedValue(std::stoi(node->strValue));
@@ -375,9 +383,24 @@ TypedValue Executor::evaluateExpression(std::shared_ptr<ASTNode> node, ENV env) 
             TypedValue arrVal = eval(node->children[0]);
             auto idxNode = node->children[1];
 
-            if (arrVal.type.kind != BaseType::Array) {
-                error("Attempted array access on non-array");
+            if (arrVal.type.kind == BaseType::String) {
+                const std::string s = getStringValue(arrVal);
+                std::vector<int> indices = getIndices(nullptr, idxNode, env);
+
+                std::string result;
+                result.reserve(indices.size());
+
+                for (int idx : indices) {
+                    if (idx < 0 || idx >= static_cast<int>(s.size()))
+                        error("String index out of bounds");
+                    result.push_back(s[idx]);
+                }
+
+                return TypedValue(result);
             }
+
+            if (arrVal.type.kind != BaseType::Array)
+                error("Attempted array access on non-array");
 
             auto arr = arrVal.get<std::shared_ptr<Array>>();
             auto indices = getIndices(arr, idxNode, env);
