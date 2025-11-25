@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <functional>
+#include <iostream>
 
 std::string readFileContents(const std::string &filename) {
     std::ifstream file(filename);
@@ -114,7 +115,7 @@ std::shared_ptr<ASTNode> Parser::parseDeclarationWithTypeAndName(
     bool isArray,
     bool skipSemicolon
 ) {
-    ASTNode::Type nodeType = isPrimitive ? ASTNode::Type::PRIMITIVE_ASSIGNMENT : ASTNode::Type::STRUCT_ASSIGNMENT;
+    ASTNode::Type nodeType = ASTNode::Type::PRIMITIVE_ASSIGNMENT;
     auto node = makeTypedNode(nodeType, 1);
     node->strValue = nameToken.value;
 
@@ -139,35 +140,35 @@ std::shared_ptr<ASTNode> Parser::parseDeclarationWithTypeAndName(
     return node;
 }
 
-std::shared_ptr<ASTNode> Parser::parseStructInitializer(const Token &nameTok, const std::string type) {
-    expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
+// std::shared_ptr<ASTNode> Parser::parseStructInitializer(const Token &nameTok, const std::string type) {
+//     expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
 
-    auto initNode = makeTypedNode(ASTNode::Type::STRUCT_ASSIGNMENT, 0);
-    initNode->strValue = nameTok.value;
+//     auto initNode = makeTypedNode(ASTNode::Type::STRUCT_ASSIGNMENT, 0);
+//     initNode->strValue = nameTok.value;
 
-    if(type != "") {
-        auto typeNode = makeTypedNode(ASTNode::Type::STRING, 1);
-        typeNode->strValue = type;
-        initNode->children.push_back(typeNode);
-    }
+//     if(type != "") {
+//         auto typeNode = makeTypedNode(ASTNode::Type::STRING, 1);
+//         typeNode->strValue = type;
+//         initNode->children.push_back(typeNode);
+//     }
 
-    while (!match(Token::Type::RBRACE)) {
-        if (match(Token::Type::IDENTIFIER) && match(Token::Type::COLON, 1)) {
-            auto member = consume().value;
-            consume();
-            auto assign = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
-            assign->strValue = member;
-            assign->children.push_back(parseExpression());
-            initNode->children.push_back(assign);
-        } else {
-            initNode->children.push_back(parseExpression());
-        }
-        if (match(Token::Type::COMMA)) consume();
-    }
+//     while (!match(Token::Type::RBRACE)) {
+//         if (match(Token::Type::IDENTIFIER) && match(Token::Type::COLON, 1)) {
+//             auto member = consume().value;
+//             consume();
+//             auto assign = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
+//             assign->strValue = member;
+//             assign->children.push_back(parseExpression());
+//             initNode->children.push_back(assign);
+//         } else {
+//             initNode->children.push_back(parseExpression());
+//         }
+//         if (match(Token::Type::COMMA)) consume();
+//     }
 
-    expect(Token::Type::RBRACE, "Expected '}' after struct initializer", true);
-    return initNode;
-}
+//     expect(Token::Type::RBRACE, "Expected '}' after struct initializer", true);
+//     return initNode;
+// }
 
 std::shared_ptr<ASTNode> Parser::parseIdentifier(const Token &ident, bool dataBit) {
     switch(peek(1).type) {
@@ -221,9 +222,15 @@ std::shared_ptr<ASTNode> Parser::parseIdentifier(const Token &ident, bool dataBi
             auto arraySize = parseOptionalArraySize(isArray);
             if (match(Token::Type::EQUAL)) {
                 consume();
-                auto initNode = parseStructInitializer(nameTok, ident.value);
+                auto assignNode = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
+                auto _bool = makeTypedNode(ASTNode::Type::BOOL, 1);
+                _bool->strValue = "1";
+                assignNode->children.push_back(_bool);
+                assignNode->strValue = nameTok.value;
+                auto initNode = parseExpression();
                 expect(Token::Type::SEMICOLON, "Expected ';' after struct declaration", true);
-                return initNode;
+                assignNode->children.push_back(initNode);
+                return assignNode;
             }
             return parseDeclarationWithTypeAndName(ident, nameTok, false, arraySize, isArray, dataBit);
         }
@@ -267,7 +274,7 @@ std::shared_ptr<ASTNode> Parser::parseStatement(int depth, bool dataBit) {
 
         case Token::Type::KEYWORD: {
             const std::string kw = consume().value;
-
+        
             auto it = kwMap.find(kw);
             if (it == kwMap.end())
                 error("Unexpected keyword: " + kw);
@@ -317,6 +324,10 @@ std::shared_ptr<ASTNode> Parser::parsePrimary() {
             auto node = makeTypedNode(ASTNode::Type::BOOL, 1);
             node->strValue = tok.value == "true" ? "1" : "0";
             return node;
+        }
+        if(tok.value == "new") {
+            consume();
+            return kwMap.at("new")(this, 0);
         }
         throw std::runtime_error("Unexpected keyword: " + tok.value);
     }
@@ -388,12 +399,6 @@ std::shared_ptr<ASTNode> Parser::parsePrimary() {
 
         if(match(Token::Type::EQUAL)){
             consume();
-
-            if (match(Token::Type::LBRACE)) {
-                auto initNode = parseStructInitializer(tok, "");
-                expect(Token::Type::SEMICOLON, "Expected ';' after assignment", true);
-                return initNode;
-            }
 
             auto node = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
             auto modify = makeTypedNode(ASTNode::Type::BOOL, 1);

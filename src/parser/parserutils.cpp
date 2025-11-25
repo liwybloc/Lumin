@@ -27,8 +27,37 @@ int Parser::getPrecedence(Token::Type type) const {
     }
 }
 
-std::unordered_map<std::string, KwHandler> Parser::initKwMap() {
+KWMAP Parser::initKwMap() const {
     return {
+        {
+            "new",
+            [](Parser* p, int depth) {
+                const Token typeTok = p->expect(Token::Type::IDENTIFIER, "Expected type name after 'new'", true);
+
+                p->expect(Token::Type::LBRACE, "Expected '{' in struct initializer", true);
+
+                auto initNode = makeTypedNode(ASTNode::Type::NEW_STRUCT, 0);
+                initNode->strValue = typeTok.value;
+
+                while(!p->match(Token::Type::RBRACE)) {
+                    if (p->match(Token::Type::IDENTIFIER) && p->match(Token::Type::COLON, 1)) {
+                        auto member = p->consume().value;
+                        p->consume();
+                        auto assign = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
+                        assign->strValue = member;
+                        assign->children.push_back(p->parseExpression());
+                        initNode->children.push_back(assign);
+                    } else {
+                        initNode->children.push_back(p->parseExpression());
+                    }
+                    if (p->match(Token::Type::COMMA)) p->consume();
+                }
+
+                p->expect(Token::Type::RBRACE, "Expected '}' after struct initializer", true);
+
+                return initNode;
+            }
+        },
         {
             "return",
             [](Parser* p, int depth) {

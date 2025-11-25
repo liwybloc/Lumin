@@ -138,22 +138,15 @@ void Executor::handleStructDeclaration(std::shared_ptr<ParsedASTNode> node, ENV 
 }
 
 TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node, ENV env) {
-    int idx = 0;
-    bool hasFlag = (node->children.size() > 0 && node->children[0]->type == ASTNode::Type::BOOL);
-    if (hasFlag) idx = 1;
-
-    const std::string structName = node->children[idx]->strValue;
-    idx++;
-
-    auto structType = env->getType(structName);
+    
+    auto structType = env->getType(node->strValue);
     if (!structType)
-        error("Unknown struct type: " + structName);
+        error("Unknown struct type: " + node->strValue);
 
     auto structDef = std::static_pointer_cast<StructType>(structType);
-    auto instance = std::make_shared<Struct>(structName, structType);
+    auto instance = std::make_shared<Struct>(node->strValue, structType);
 
-    std::vector<std::shared_ptr<ParsedASTNode>> args;
-    for (int i = idx; i < (int)node->children.size(); ++i) args.push_back(node->children[i]);
+    std::vector<std::shared_ptr<ParsedASTNode>> args = node->children;
 
     if (args.size() != structDef->fields.size())
         error("Struct assignment has incorrect number of arguments");
@@ -179,7 +172,7 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node,
         instance->fields.emplace_back(field.first, val);
     }
 
-    TypedValue finalVal(instance, Type(structName));
+    TypedValue finalVal(instance, Type(node->strValue));
     return finalVal;
 }
 
@@ -290,17 +283,6 @@ TypedValue Executor::handleAssignment(
         return rhsVal;
     }
 
-    if (node->type == ASTNode::Type::STRUCT_ASSIGNMENT) {
-        int tIdx = idx;
-        if (tIdx >= (int)node->children.size()) {
-            error("Malformed struct declaration/assignment");
-        }
-        bool hasExplicitType = (node->children[tIdx]->type == ASTNode::Type::IDENTIFIER || node->children[tIdx]->type == ASTNode::Type::STRING);
-        if (hasExplicitType) {
-            return handleStructAssignment(node, env);
-        }
-    }
-
     TypedValue val;
     if (isModify) {
         env->pushSelfRef(env->get(node->strValue));
@@ -321,23 +303,18 @@ TypedValue Executor::handleAssignment(
     }
 
     Type expectedType;
-    if (!node->children.empty()) {
-        auto t = node->children.back()->type;
-        if (t == ASTNode::Type::ARRAY_LITERAL || t == ASTNode::Type::SIZED_ARRAY_DECLARE) {
+    if(primVal != Primitive::NONE) {
+        if(node->children.size() > 1
+            && (node->children.back()->type == ASTNode::Type::ARRAY_LITERAL || node->children.back()->type == ASTNode::Type::SIZED_ARRAY_DECLARE)) {
             Type inferred = inferArrayType(node->children.back(), env);
             val.type = inferred;
             expectedType = inferred;
-        } else {
-            expectedType = isModify ? env->get(node->strValue).type : Type(primVal);
-        }
-    } else if (node->primitiveValue != Primitive::NONE) {
-        expectedType = Type(node->primitiveValue);
+        } else
+            expectedType = Type(primVal);
+    } else if (node->children.size() > 1 && node->children[1]->type == ASTNode::Type::NEW_STRUCT) {
+        expectedType = Type(node->children[1]->strValue);
     } else {
-        int tIndex = 1;
-        if (node->children.size() > (size_t)tIndex && node->children[tIndex]->type == ASTNode::Type::IDENTIFIER)
-            expectedType = Type(node->children[tIndex]->strValue);
-        else
-            expectedType = Type(Primitive::INT);
+        expectedType = val.type;
     }
 
     if (!val.type.match(expectedType))

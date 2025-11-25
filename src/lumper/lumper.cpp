@@ -123,7 +123,7 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
         case ASTNode::Type::ARRAY_ASSIGN:
         case ASTNode::Type::NDARRAY_ASSIGN:
         case ASTNode::Type::STRUCT_DECLARE:
-        case ASTNode::Type::STRUCT_ASSIGNMENT:
+        case ASTNode::Type::NEW_STRUCT:
         case ASTNode::Type::PRAGMA:
         case ASTNode::Type::BOOL:
         case ASTNode::Type::FOR_STATEMENT:
@@ -184,7 +184,7 @@ static std::shared_ptr<ParsedASTNode> decodeNode(std::istream &in, uint32_t dept
         case ASTNode::Type::ARRAY_ASSIGN:
         case ASTNode::Type::NDARRAY_ASSIGN:
         case ASTNode::Type::STRUCT_DECLARE:
-        case ASTNode::Type::STRUCT_ASSIGNMENT:
+        case ASTNode::Type::NEW_STRUCT:
         case ASTNode::Type::PRAGMA:
         case ASTNode::Type::FOR_STATEMENT:
         case ASTNode::Type::CHAR:

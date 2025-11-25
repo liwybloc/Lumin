@@ -161,15 +161,15 @@ private:
     std::shared_ptr<ASTNode> buildSizedArrayDeclareNode(const Token &typeToken, std::shared_ptr<ASTNode> sizeNode, bool isPrimitive);
     std::shared_ptr<ASTNode> buildTypeNodeFromToken(const Token &typeToken);
     std::shared_ptr<ASTNode> parseDeclarationWithTypeAndName(const Token &typeToken, const Token &nameToken, bool isPrimitive, const std::shared_ptr<ASTNode> &arraySize, bool isArray, bool skipSemicolon);
-    std::shared_ptr<ASTNode> parseStructInitializer(const Token &nameTok, const std::string type);
+    // std::shared_ptr<ASTNode> parseStructInitializer(const Token &nameTok, const std::string type);
     std::shared_ptr<ASTNode> parseIdentifier(const Token &ident, bool dataBit);
     std::shared_ptr<ASTNode> parseStatement(int depth, bool dataBit = false);
-    KWMAP initKwMap();
     std::shared_ptr<ASTNode> parseBlock(int depth);
     std::shared_ptr<ASTNode> parseExpression();
     std::shared_ptr<ASTNode> parsePrimary();
     std::shared_ptr<ASTNode> parseBinaryOp(std::shared_ptr<ASTNode> left, int minPrecedence = 0);
     int getPrecedence(Token::Type type) const;
+    KWMAP initKwMap() const;
 };
 
 std::string typeToString(ASTNode::Type type);
