@@ -14,11 +14,14 @@ add_executable(lumin ${SOURCES})
 
 target_link_libraries(lumin PRIVATE zstd)
 
+target_compile_definitions(lumin PRIVATE $<$<CONFIG:Debug>:DEBUG>)
+
 add_custom_target(run_tests
     COMMAND ${CMAKE_SOURCE_DIR}/runtests.sh
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Building and running tests"
 )
+
 add_custom_target(clean_up
     COMMAND bash -c "cd ${CMAKE_SOURCE_DIR} && rm -rf build && mkdir build && cd build && make run_tests"
 )

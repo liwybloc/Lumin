@@ -47,6 +47,9 @@ void Executor::printValue(std::ostream *out, const TypedValue &val) {
         case BaseType::String:
             *out << val.get<std::string>();
             return;
+        case BaseType::Char:
+            *out << val.get<char>();
+            return;
         case BaseType::Function:
             *out << "[function]";
             return;
@@ -167,7 +170,7 @@ ReturnValue Executor::executeNode(std::shared_ptr<ParsedASTNode> node, ENV env, 
         case ASTNode::Type::BLOCK: return executeBlock(node->children, std::make_shared<Environment>(env));
         case ASTNode::Type::STRUCT_DECLARE: handleStructDeclaration(node, env); return {};
         case ASTNode::Type::PRIMITIVE_ASSIGNMENT: handleAssignment(node, env, node->primitiveValue, true); return {};
-        case ASTNode::Type::STRUCT_ASSIGNMENT: handleStructAssignment(node, env); return {};
+        case ASTNode::Type::NEW_STRUCT: handleStructAssignment(node, env); return {};
         case ASTNode::Type::RETURN_STATEMENT:
             return ReturnValue(node->children.empty() ? TypedValue() : evaluateExpression(node->children[0], env));
         case ASTNode::Type::IF_STATEMENT: {
@@ -363,20 +366,20 @@ std::shared_ptr<Function> Executor::createNativeFunction(std::string name, Funct
 }
 
 TypedValue Executor::evaluateExpression(std::shared_ptr<ParsedASTNode> node, ENV env) {
-    printf("evaluating node: %s\n", astTypeToString(node->type).c_str());
     auto eval = [this, &env](std::shared_ptr<ParsedASTNode> n){ return evaluateExpression(n, env); };
 
     switch (node->type) {
-        case ASTNode::Type::NUMBER: return TypedValue(std::stoi(node->strValue));
+        case ASTNode::Type::INTEGER: return TypedValue(node->intValue);
         case ASTNode::Type::BOOL: return TypedValue(node->strValue == "1");
         case ASTNode::Type::STRING: return TypedValue(node->strValue);
+        case ASTNode::Type::CHAR: return TypedValue(node->strValue[0]);
         case ASTNode::Type::IDENTIFIER: return env->get(node->strValue);
         case ASTNode::Type::SELF_REFERENCE:
             if (env->hasSelfRef()) return env->currentSelfRef();
             return TypedValue();
 
         case ASTNode::Type::PRIMITIVE_ASSIGNMENT: return handleAssignment(node, env, node->primitiveValue, true);
-        case ASTNode::Type::STRUCT_ASSIGNMENT: return handleStructAssignment(node, env);
+        case ASTNode::Type::NEW_STRUCT: return handleStructAssignment(node, env);
         case ASTNode::Type::NDARRAY_ASSIGN: return handleNDArrayAssignment(node, env);
 
         case ASTNode::Type::ARRAY_ACCESS: {

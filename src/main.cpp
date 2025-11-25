@@ -57,9 +57,11 @@ ParsedData parseAndLumpIfNeeded(const std::string& filename, const std::string& 
     Parser parser(tokens, filename);
     auto ast = parser.parseProgram();
 
-    std::ofstream debug("astdebug.txt");
-    debug << astToString(ast);
-    debug.close();
+    #ifdef DEBUG
+        std::ofstream debug("astdebug.txt");
+        debug << astToString(ast);
+        debug.close();
+    #endif
 
     std::string lumpPath = filename.substr(0, filename.size() - 4) + ".lmp";
     if (forceLump) {

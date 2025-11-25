@@ -356,7 +356,7 @@ std::string astTypeToString(ASTNode::Type type) {
     switch(type) {
         case ASTNode::Type::PROGRAM: return "PROGRAM";
         case ASTNode::Type::PRAGMA: return "PRAGMA";
-        case ASTNode::Type::NUMBER: return "NUMBER";
+        case ASTNode::Type::INTEGER: return "NUMBER";
         case ASTNode::Type::RANGE: return "RANGE";
         case ASTNode::Type::STRING: return "STRING";
         case ASTNode::Type::BOOL: return "BOOL";
@@ -365,7 +365,7 @@ std::string astTypeToString(ASTNode::Type type) {
         case ASTNode::Type::BINARY_OP: return "BINARY_OP";
         case ASTNode::Type::UNARY_OP: return "UNARY_OP";
         case ASTNode::Type::PRIMITIVE_ASSIGNMENT: return "PRIMITIVE_ASSIGNMENT";
-        case ASTNode::Type::STRUCT_ASSIGNMENT: return "STRUCT_ASSIGNMENT";
+        case ASTNode::Type::NEW_STRUCT: return "NEW_STRUCT";
         case ASTNode::Type::SIZED_ARRAY_DECLARE: return "SIZED_ARRAY_DECLARE";
         case ASTNode::Type::ELSE_STATEMENT: return "ELSE_STATEMENT";
         case ASTNode::Type::BLOCK: return "BLOCK";

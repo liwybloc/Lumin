@@ -28,6 +28,15 @@ char Lexer::consume() {
     return c;
 }
 
+[[noreturn]] void Lexer::error(const std::string &message) const {
+    throw std::runtime_error(message + " at " + std::to_string(lineIndex) + ":" + std::to_string(colIndex));
+}
+
+char Lexer::expect(const char expected, const std::string &message) {
+    if (peek() == expected) return consume();
+    error(message + " at " + std::to_string(lineIndex) + ":" + std::to_string(colIndex));
+}
+
 void Lexer::selfUpd(std::vector<Token>* tokens, const std::string &value, Token::Type type, unsigned long tokenLine, unsigned long tokenCol, int by) {
     tokens->push_back(Token{Token::Type::SELF_REFERENCE, "@", tokenLine, tokenCol});
     tokens->push_back(Token{type, value, tokenLine, tokenCol});
@@ -93,7 +102,7 @@ std::string join(const std::vector<std::string>& vec, const std::string& delimit
 
 void Lexer::applyHeader(const std::string &header) {
     const std::vector<std::string> args = split(header, ' ');
-    if(args.empty()) throw std::runtime_error("Empty header");
+    if(args.empty()) error("Empty header");
 
     const std::string cmd = shift(args);
 
@@ -103,7 +112,7 @@ void Lexer::applyHeader(const std::string &header) {
         std::smatch match;
         const std::string rest = join(args, " ");
         if(!std::regex_match(rest, match, aliasPattern)) {
-            throw std::runtime_error(
+            error(
                 "Expected alias in format 'alias \"search\" as \"replace\"'"
             );
         }
@@ -235,9 +244,14 @@ std::vector<Token> Lexer::tokenize() {
                     str += c;
                 }
             }
-            if (peek() != '"') throw std::runtime_error("Unterminated string literal");
-            consume();
+            expect('"', "Unterminated string literal");
             tokens.push_back(Token{Token::Type::STRING, str, tokenLine, tokenCol});
+            continue;
+        }
+        if(peek() == '\'') {
+            consume();
+            tokens.push_back(Token{Token::Type::CHAR, std::string{consume()}, tokenLine, tokenCol});
+            expect('\'', "Unterminated character literal");
             continue;
         }
 
@@ -250,7 +264,7 @@ std::vector<Token> Lexer::tokenize() {
                 char c = peek();
                 if (c == '.') {
                     if(peek() == '.') goto out;
-                    if (decimal) throw std::runtime_error("Multiple decimal points in number");
+                    if (decimal) error("Multiple decimal points in number");
                     decimal = true;
                 }
                 number += c;
@@ -279,15 +293,17 @@ std::vector<Token> Lexer::tokenize() {
             continue;
         }
 
-        throw std::runtime_error("Unexpected character: " + std::string(1, consume()));
+        error("Unexpected character: " + std::string(1, consume()));
     }
 
     tokens.push_back(Token{Token::Type::END_OF_FILE, "", lineIndex, colIndex});
 
-    std::ofstream debug("lexDebug.txt");
-    for (const auto &t : tokens) {
-        debug << t.value << " " << static_cast<int>(t.type) << " " << t.lineIndex << " " << t.colIndex << "\n";
-    }
+    #ifdef DEBUG
+        std::ofstream debug("lexDebug.txt");
+        for (const auto &t : tokens) {
+            debug << t.value << " " << static_cast<int>(t.type) << " " << t.lineIndex << " " << t.colIndex << "\n";
+        }
+    #endif
 
     return tokens;
 }

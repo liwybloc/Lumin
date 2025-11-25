@@ -69,15 +69,15 @@ static void readExact(std::istream &in, char *buf, std::size_t n) {
     if (!in || static_cast<std::size_t>(in.gcount()) != n) throw std::runtime_error("Unexpected EOF reading data");
 }
 
-static void writeString(std::ostream &out, const std::string &s) {
+static void writeString(std::ostream &out, const std::string &s, bool forceSize = false) {
     if (s.size() > MAX_STRING_LEN) throw std::runtime_error("String too large");
-    writeVarint(out, static_cast<uint32_t>(s.size()));
+    if(s.size() != 1 || forceSize) writeVarint(out, static_cast<uint32_t>(s.size())); // write for 0 still
     out.write(s.data(), s.size());
     if (!out) throw std::runtime_error("Write error");
 }
 
-static std::string readString(std::istream &in) {
-    uint32_t len = readVarint(in);
+static std::string readString(std::istream &in, bool singleSize) {
+    uint32_t len = singleSize ? 1 : readVarint(in);
     if (len > MAX_STRING_LEN) throw std::runtime_error("String length unreasonable/too large");
     std::string s(len, '\0');
     readExact(in, s.data(), len);
@@ -89,9 +89,11 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
     uint32_t childCount = static_cast<uint32_t>(node->children.size());
     uint8_t tval = uint8_t(node->type);
     if (tval > TYPE_MAX_VALUE) throw std::runtime_error("ASTNode::Type out of range");
+
     uint8_t header = uint8_t(tval << 3);
-    if (childCount < 7) header |= uint8_t(childCount);
-    else header |= 0b111;
+    if(node->strValue.length() == 1) header |= 0b100;
+    if (childCount < 3) header |= uint8_t(childCount);
+    else header |= 0b11;
     writeByte(out, header);
 
     switch (node->type) {
@@ -99,7 +101,7 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
         case ASTNode::Type::UNARY_OP:
             writeByte(out, uint8_t(node->binopValue));
             break;
-        case ASTNode::Type::NUMBER:
+        case ASTNode::Type::INTEGER:
         case ASTNode::Type::BOOL:
         case ASTNode::Type::STRING:
         case ASTNode::Type::SIZED_ARRAY_DECLARE:
@@ -113,8 +115,8 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
 
     switch (node->type) {
         case ASTNode::Type::FUNCTION:
-            writeString(out, node->retType);
-        case ASTNode::Type::NUMBER:
+            writeString(out, node->retType, true);
+        case ASTNode::Type::INTEGER:
         case ASTNode::Type::STRING:
         case ASTNode::Type::IDENTIFIER:
         case ASTNode::Type::PRIMITIVE_ASSIGNMENT:
@@ -125,31 +127,35 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
         case ASTNode::Type::PRAGMA:
         case ASTNode::Type::BOOL:
         case ASTNode::Type::FOR_STATEMENT:
+        case ASTNode::Type::CHAR:
             writeString(out, node->strValue);
             break;
         default:
             break;
     }
 
-    if (childCount >= 7) writeVarint(out, childCount);
+    if (childCount >= 3) writeVarint(out, childCount);
     for (const auto &c : node->children) encodeNode(c, out);
 }
 
 static std::shared_ptr<ParsedASTNode> decodeNode(std::istream &in, uint32_t depth) {
     if (depth > MAX_AST_DEPTH) throw std::runtime_error("AST depth exceeded safe limit");
     auto n = std::make_shared<ParsedASTNode>();
+
     uint8_t header = readByte(in);
     uint8_t tval = header >> 3;
     if (tval > TYPE_MAX_VALUE) throw std::runtime_error("Invalid node type");
     n->type = ASTNode::Type(tval);
-    uint8_t small = header & 0b111;
+
+    bool isOneChar = (header & 0b100) != 0;
+    uint8_t childCount = header & 0b11;
 
     switch (n->type) {
         case ASTNode::Type::BINARY_OP:
         case ASTNode::Type::UNARY_OP:
             n->binopValue = BinaryOp(readByte(in));
             break;
-        case ASTNode::Type::NUMBER:
+        case ASTNode::Type::INTEGER:
         case ASTNode::Type::BOOL:
         case ASTNode::Type::STRING:
         case ASTNode::Type::SIZED_ARRAY_DECLARE:
@@ -162,9 +168,16 @@ static std::shared_ptr<ParsedASTNode> decodeNode(std::istream &in, uint32_t dept
     }
 
     switch (n->type) {
+        case ASTNode::Type::INTEGER:
+            n->strValue = readString(in, isOneChar);
+            n->intValue = std::stoi(n->strValue);
+            break;
+        case ASTNode::Type::BOOL:
+            n->strValue = readString(in, isOneChar);
+            n->boolValue = (n->strValue == "1");
+            break;
         case ASTNode::Type::FUNCTION:
-            n->retType = readString(in);
-        case ASTNode::Type::NUMBER:
+            n->retType = readString(in, false);
         case ASTNode::Type::STRING:
         case ASTNode::Type::IDENTIFIER:
         case ASTNode::Type::PRIMITIVE_ASSIGNMENT:
@@ -173,15 +186,15 @@ static std::shared_ptr<ParsedASTNode> decodeNode(std::istream &in, uint32_t dept
         case ASTNode::Type::STRUCT_DECLARE:
         case ASTNode::Type::STRUCT_ASSIGNMENT:
         case ASTNode::Type::PRAGMA:
-        case ASTNode::Type::BOOL:
         case ASTNode::Type::FOR_STATEMENT:
-            n->strValue = readString(in);
+        case ASTNode::Type::CHAR:
+            n->strValue = readString(in, isOneChar);
             break;
         default:
             break;
     }
 
-    uint32_t cc = (small < 7) ? small : readVarint(in);
+    uint32_t cc = (childCount < 3) ? childCount : readVarint(in);
     if (cc > 10000000) throw std::runtime_error("Child count unreasonable");
     n->children.reserve(cc);
     for (uint32_t i = 0; i < cc; ++i) n->children.push_back(decodeNode(in, depth + 1));
@@ -204,7 +217,7 @@ void Lumper::lump(const std::string &loc) {
 
     const size_t maxCompressed = ZSTD_compressBound(inSize);
     std::vector<char> outBuf(maxCompressed);
-    const size_t csize = ZSTD_compress(outBuf.data(), maxCompressed, inData.data(), inSize, 3);
+    const size_t csize = ZSTD_compress(outBuf.data(), maxCompressed, inData.data(), inSize, 25);
 
     if (ZSTD_isError(csize)) throw std::runtime_error(std::string("ZSTD compression failed: ") + ZSTD_getErrorName(csize));
     if (csize == 0 || csize > MAX_CSIZE) throw std::runtime_error("Compressed size unreasonable");

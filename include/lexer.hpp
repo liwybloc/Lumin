@@ -44,6 +44,7 @@ enum class Primitive {
     INT,
     BOOL,
     STRING,
+    CHAR,
 
     UNKNOWN,
 };
@@ -97,6 +98,7 @@ struct Token {
 
         NUMBER,
         STRING,
+        CHAR,
         BOOL,
         IDENTIFIER,
         KEYWORD,
@@ -125,6 +127,8 @@ private:
 
     char peek(size_t n = 0) const;
     char consume();
+    [[noreturn]] void error(const std::string &message) const;
+    char expect(const char expected, const std::string &message);
     void selfUpd(std::vector<Token> *tokens, const std::string &value, Token::Type type, unsigned long tokenLine, unsigned long tokenCol, int by);
     void pushSelfUpd(std::vector<Token> *tokens, const std::string &value, Token::Type type, unsigned long tokenLine, unsigned long tokenCol, int by);
     void simplitiveBinOp(std::vector<Token> *tokens, const std::string &value, Token::Type type, unsigned long tokenLine, unsigned long tokenCol);

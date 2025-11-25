@@ -18,9 +18,10 @@ struct ASTNode {
         PROGRAM,
         PRAGMA,
 
-        NUMBER,
+        INTEGER,
         RANGE,
         STRING,
+        CHAR,
         BOOL,
         IDENTIFIER,
         SELF_REFERENCE,
@@ -29,7 +30,7 @@ struct ASTNode {
         UNARY_OP,
 
         PRIMITIVE_ASSIGNMENT,
-        STRUCT_ASSIGNMENT,
+        NEW_STRUCT,
 
         BLOCK,
         CALL,

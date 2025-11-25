@@ -23,14 +23,21 @@ void addOutstream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
             size_t argIndex = 1;
             size_t pos = 0;
 
+            std::stringstream stream;
+
             while ((pos = format.find("{}", pos)) != std::string::npos && argIndex < args.size()) {
-                std::string str = executor->getStringValue(*args[argIndex]);
-                format.replace(pos, 2, str);
-                pos += str.size();
+                std::string before = format.substr(0, pos);
+                stream << before;
+                format = format.substr(pos + 2);
+
+                executor->printValue(&stream, *args[argIndex]);
                 argIndex++;
+                pos = 0;
             }
 
-            std::cout << format;
+            stream << format;
+            std::cout << stream.str();
+
             return std::make_shared<TypedValue>(0);
         }
     })});

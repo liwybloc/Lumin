@@ -6,11 +6,7 @@
       "match": "//.*$"
     },
     {
-      "name": "keyword.control.lum",
-      "match": "\\b(fin|return|if|else|for|while|nil|import|export|as|native|throws|throw|link|break|continue)\\b|#\\w+"
-    },
-    {
-      "begin": "\\b(struct|throws|throw)\\b",
+      "begin": "\\b(struct|throws|throw|\\-\\>|new)\\b",
       "beginCaptures": {
         "0": { "name": "storage.type.lum" }
       },
@@ -21,12 +17,16 @@
       "name": "meta.struct.lum"
     },
     {
+      "name": "keyword.control.lum",
+      "match": "\\b(fin|return|if|else|for|while|nil|import|export|as|native|throws|throw|link|break|continue|new)\\b|#\\w+"
+    },
+    {
       "name": "storage.type.lum",
-      "match": "\\b(int|float|bool|string|struct|false|true|unknown)(\\[\\])?\\b"
+      "match": "\\b(int|float|bool|string|struct|false|true|unknown|char)(\\[\\])?\\b"
     },
     {
       "name": "entity.name.type.struct.lum",
-      "match": "\\b(?!int|float|bool|char|struct)[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*)"
+      "match": "\\b(?!int|float|bool|char|struct)[A-Za-z_][A-Za-z0-9_]*(\\[[^\\]]*])*\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\b)"
     },
     {
       "name": "constant.numeric.lum",
@@ -41,6 +41,14 @@
       "match": "@"
     },
     {
+      "name": "entity.name.function.lum",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+    },
+    {
+      "name": "variable.other.lum",
+      "match": "\\b([a-z_][a-z0-9_]*)\\b"
+    },
+    {
       "name": "string.quoted.double.lum",
       "begin": "\"",
       "end": "\"",
@@ -49,8 +57,18 @@
       ]
     },
     {
-      "name": "entity.name.function.lum",
-      "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+      "name": "string.quoted.single.lum",
+      "match": "'(\\\\.|[^\\\\'])'",
+      "patterns": [
+        { "match": "\\\\.", "name": "constant.character.escape.lum" }
+      ]
+    },
+    {
+      "name": "invalid.character.literal.lum",
+      "match": "'(.{2,}|$)",
+      "captures": {
+        "0": { "name": "invalid.illegal.lum" }
+      }
     }
   ]
 }

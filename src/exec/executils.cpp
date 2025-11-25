@@ -1,6 +1,7 @@
 #include "executor.hpp"
 #include "executils.hpp"
 #include "outstream.hpp"
+#include "standard.hpp"
 #include <iostream>
 #include <optional>
 #include <algorithm>
@@ -9,19 +10,21 @@
 Executor::Executor(std::shared_ptr<ParsedASTNode> root) : root(root) {
     globalEnv = std::make_shared<Environment>();
 
-    globalEnv->set("nil", TypedValue());
+    implStandard(globalEnv, this);
 
-    std::ofstream debugFile("astdebug2.txt");
-    if (debugFile.is_open()) {
-        debugFile << astToString(root->toAST()).c_str();
-        debugFile.close();
-    } else {
-        std::cerr << "Failed to open astdebug2.txt for writing\n";
-    }
+    #ifdef DEBUG
+        std::ofstream debugFile("astdebug2.txt");
+        if (debugFile.is_open()) {
+            debugFile << astToString(root->toAST()).c_str();
+            debugFile.close();
+        } else {
+            std::cerr << "Failed to open astdebug2.txt for writing\n";
+        }
+    #endif
 }
 
 TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ParsedASTNode> node, ENV env) {
-    int efficiency = std::stoi(node->children[0]->strValue);
+    int efficiency = node->children[0]->intValue;
 
     std::vector<int> shape;
     for (size_t i = 1; i < node->children.size() - 1; ++i)
@@ -135,8 +138,6 @@ void Executor::handleStructDeclaration(std::shared_ptr<ParsedASTNode> node, ENV 
 }
 
 TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node, ENV env) {
-    const std::string varName = node->strValue;
-
     int idx = 0;
     bool hasFlag = (node->children.size() > 0 && node->children[0]->type == ASTNode::Type::BOOL);
     if (hasFlag) idx = 1;
@@ -179,7 +180,6 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node,
     }
 
     TypedValue finalVal(instance, Type(structName));
-    env->set(varName, finalVal);
     return finalVal;
 }
 
@@ -187,6 +187,7 @@ int Executor::getIntValue(const TypedValue &val) {
     switch(val.type.kind) {
         case BaseType::Bool: return val.get<bool>() ? 1 : 0;
         case BaseType::Int: return val.get<int>();
+        case BaseType::Char: return static_cast<int>(val.get<char>());
         default: error("Expected integer value");
     }
 }
@@ -273,7 +274,8 @@ TypedValue Executor::handleAssignment(
         env->pushSelfRef(it->second);
         TypedValue rhsVal = evaluateExpression(node->children[idx + 1], env);
 
-        if (node->children[idx + 1]->type == ASTNode::Type::ARRAY_LITERAL) {
+        ASTNode::Type its = node->children[idx + 1]->type;
+        if (its == ASTNode::Type::ARRAY_LITERAL || its == ASTNode::Type::SIZED_ARRAY_DECLARE) {
             Type t = inferArrayType(node->children[idx + 1], env);
             rhsVal.type = t;
         }
@@ -320,7 +322,8 @@ TypedValue Executor::handleAssignment(
 
     Type expectedType;
     if (!node->children.empty()) {
-        if (node->children.back()->type == ASTNode::Type::ARRAY_LITERAL) {
+        auto t = node->children.back()->type;
+        if (t == ASTNode::Type::ARRAY_LITERAL || t == ASTNode::Type::SIZED_ARRAY_DECLARE) {
             Type inferred = inferArrayType(node->children.back(), env);
             val.type = inferred;
             expectedType = inferred;
@@ -340,7 +343,7 @@ TypedValue Executor::handleAssignment(
     if (!val.type.match(expectedType))
         error("Incompatible types for assignment; expected " +
                                  expectedType.toString() + " but got " +
-                                 val.type.toString());
+                                 val.type.toString() + " for member: " + node->strValue);
 
     if (isModify) {
         env->modify(node->strValue, val);

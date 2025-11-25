@@ -1,32 +1,9 @@
 import "outstream";
 import "filestream";
 
-fin printf(string format, unknown ...args) {
-    int length = format.length;
-    bool opened = false;
-    int argIndex = 0;
-    string output = "";
-    for (int i = 0; i < length; i++) {
-        if (format[i] == "{") {
-            opened = true;
-        } else if (opened && format[i] == "}") {
-            output += args[argIndex];
-            argIndex++;
-            opened++;
-        } else if (opened) {
-            opened = false;
-            output += format[i - 1];
-        } else {
-            opened = false;
-            output += format[i];
-        }
-    }
-    print(output);
-}
-
 fin main() -> int {
 
-    printf("john: {}, age: {}, city: {}\n", "John Doe", 30, "New York City");
+    
 
     return 0;
 }

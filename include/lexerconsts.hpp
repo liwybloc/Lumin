@@ -33,13 +33,14 @@ const std::unordered_map<std::string, Token::Type> keywords = {
     {"false", Token::Type::KEYWORD}, {"true", Token::Type::KEYWORD},
     {"as", Token::Type::KEYWORD}, {"native", Token::Type::KEYWORD},
     {"link", Token::Type::KEYWORD}, {"continue", Token::Type::KEYWORD},
-    {"break", Token::Type::KEYWORD},
+    {"break", Token::Type::KEYWORD}, {"new", Token::Type::KEYWORD},
 };
 
 const std::unordered_map<std::string, Primitive> primitives = {
     {"int", Primitive::INT},
     {"bool", Primitive::BOOL},
     {"string", Primitive::STRING},
+    {"char", Primitive::CHAR},
     {"unknown", Primitive::UNKNOWN},
 };
 

@@ -203,7 +203,7 @@ std::shared_ptr<ASTNode> Parser::parseIdentifier(const Token &ident, bool dataBi
 
             auto node = makeTypedNode(ASTNode::Type::NDARRAY_ASSIGN, 1);
             node->strValue = ident.value;
-            auto effNode = makeTypedNode(ASTNode::Type::NUMBER, 1);
+            auto effNode = makeTypedNode(ASTNode::Type::INTEGER, 1);
             effNode->strValue = std::to_string(selfRefLevel);
             node->children.push_back(effNode);
             for(auto &shape : ndarrayShape) {
@@ -226,6 +226,19 @@ std::shared_ptr<ASTNode> Parser::parseIdentifier(const Token &ident, bool dataBi
                 return initNode;
             }
             return parseDeclarationWithTypeAndName(ident, nameTok, false, arraySize, isArray, dataBit);
+        }
+        case Token::Type::LBRACKET: {
+            consume();
+            consume(); // consume '['
+            std::shared_ptr<ASTNode> sizeNode = nullptr;
+            if (!match(Token::Type::RBRACKET)) {
+                sizeNode = parseExpression(); // optional size
+            }
+            expect(Token::Type::RBRACKET, "Expected ']' after array type", true);
+
+            const Token nameTok = expect(Token::Type::IDENTIFIER, "Expected identifier after array type", true);
+            return parseDeclarationWithTypeAndName(ident, nameTok, false, sizeNode, true, dataBit);
+
         }
     }
     return nullptr;
@@ -289,7 +302,7 @@ std::shared_ptr<ASTNode> Parser::parsePrimary() {
 
     if (tok.type == Token::Type::NUMBER) {
         consume();
-        auto node = makeTypedNode(ASTNode::Type::NUMBER, 1);
+        auto node = makeTypedNode(ASTNode::Type::INTEGER, 1);
         node->strValue = tok.value;
         return node;
     }
@@ -500,6 +513,11 @@ std::shared_ptr<ASTNode> Parser::parsePrimary() {
         auto node = makeTypedNode(ASTNode::Type::UNARY_OP, 0);
         node->binopValue = tok.binopValue;
         node->children.push_back(parsePrimary());
+        return node;
+    }
+    if(tok.type == Token::Type::CHAR) {
+        auto node = makeTypedNode(ASTNode::Type::CHAR, 1);
+        node->strValue = consume().value;
         return node;
     }
 

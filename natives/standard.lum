@@ -1,0 +1,32 @@
+import "outstream";
+
+struct Entry {
+    string key;
+    unknown value;
+};
+struct Map {
+    Entry[] entries;
+};
+
+struct Bob {
+    string name;
+    int age;
+};
+
+fin int main() {
+
+    // Map x = new Map{
+    //     entries: [
+    //         new Entry{ key: "key1", value: "value1" },
+    //         new Entry{ key: "key2", value: "value2" },
+    //     ]
+    // };
+    Bob x = {
+        name: "Alice",
+        age: 30,
+    };
+
+    println(x);
+
+    return 0;
+}

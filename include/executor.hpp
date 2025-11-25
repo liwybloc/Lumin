@@ -28,6 +28,9 @@ struct ParsedASTNode {
 
     Primitive primitiveValue = Primitive::NONE;
 
+    bool boolValue;
+    int intValue;
+
     std::vector<std::shared_ptr<ParsedASTNode>> children;
 
     std::shared_ptr<ASTNode> toAST() const {
@@ -43,7 +46,7 @@ struct ParsedASTNode {
     }
 };
 
-enum class BaseType { Int, Bool, String, Unknown, Array, Function, Struct, ExportData, NIL };
+enum class BaseType { Int, Bool, String, Char, Unknown, Array, Function, Struct, ExportData, NIL };
 
 struct StructType;
 struct Struct;
@@ -66,6 +69,7 @@ struct Type {
             case Primitive::INT: kind = BaseType::Int; break;
             case Primitive::BOOL: kind = BaseType::Bool; break;
             case Primitive::STRING: kind = BaseType::String; break;
+            case Primitive::CHAR: kind = BaseType::Char; break;
             case Primitive::UNKNOWN: kind = BaseType::Unknown; break;
             default: throw std::runtime_error("Invalid primitive type - " + std::to_string(static_cast<int>(prim)));
         }
@@ -97,6 +101,7 @@ struct Type {
             case BaseType::Int: return "int";
             case BaseType::Bool: return "bool";
             case BaseType::String: return "string";
+            case BaseType::Char: return "char";
             case BaseType::Array: return "array<" + (elementType ? elementType->toString() : std::string("?")) + ">";
             case BaseType::Function: return "function";
             case BaseType::Struct: return "struct: " + customName;
@@ -118,7 +123,7 @@ using PFunction = std::shared_ptr<Function>;
 using PStruct = std::shared_ptr<Struct>;
 using PExportData = std::shared_ptr<ExportData>;
 
-using Value = std::variant<int, bool, std::nullptr_t, std::string,
+using Value = std::variant<int, bool, std::nullptr_t, std::string, char,
                            PArray, PFunction, PStruct, PExportData>;
 
 struct TypedValue {
@@ -131,6 +136,7 @@ struct TypedValue {
     TypedValue(int value) : value(value), type(Type(Primitive::INT)) {}
     TypedValue(bool value) : value(value), type(Type(Primitive::BOOL)) {}
     TypedValue(const std::string &value) : value(value), type(Type(Primitive::STRING)) {}
+    TypedValue(char value) : value(value), type(Type(Primitive::CHAR)) {}
     TypedValue(const PArray arr, Type t) : value(arr), type(t) {}
     TypedValue(const PStruct fn) : value(fn), type(Type(BaseType::Struct)) {}
     explicit TypedValue() : value(nullptr), type(Type(BaseType::NIL)) {}
