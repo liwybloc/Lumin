@@ -252,8 +252,19 @@ std::shared_ptr<ASTNode> Parser::parseIdentifier(const Token &ident, bool dataBi
 }
 
 std::shared_ptr<ASTNode> Parser::parseStatement(int depth, bool dataBit) {
+    auto lineNode = makeTypedNode(ASTNode::Type::INTEGER, 1);
+    lineNode->strValue = std::to_string(peek().lineIndex);
+    auto parsedStmt = parseStatementPre(depth, dataBit);
+    printf("B %d\n", parsedStmt->type);
+    parsedStmt->children.insert(parsedStmt->children.begin(), lineNode);
+    printf("B\n");
+    return parsedStmt;
+}
+
+std::shared_ptr<ASTNode> Parser::parseStatementPre(int depth, bool dataBit) {
     const Token &tok = peek();
 
+    printf("Parsing statement at token %s\n", typeToString(tok.type).c_str());
     switch (tok.type) {
         case Token::Type::LBRACE:
             return parseBlock(depth + 1);

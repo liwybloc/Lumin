@@ -138,7 +138,7 @@ static void encodeNode(const std::shared_ptr<ASTNode> &node, std::ostream &out) 
     for (const auto &c : node->children) encodeNode(c, out);
 }
 
-static std::shared_ptr<ParsedASTNode> decodeNode(std::istream &in, uint32_t depth) {
+static std::shared_ptr<ParsedASTNode> decodeNode(std::istream &in, uint32_t depth, int lkln) {
     if (depth > MAX_AST_DEPTH) throw std::runtime_error("AST depth exceeded safe limit");
     auto n = std::make_shared<ParsedASTNode>();
 
@@ -196,8 +196,20 @@ static std::shared_ptr<ParsedASTNode> decodeNode(std::istream &in, uint32_t dept
 
     uint32_t cc = (childCount < 3) ? childCount : readVarint(in);
     if (cc > 10000000) throw std::runtime_error("Child count unreasonable");
-    n->children.reserve(cc);
-    for (uint32_t i = 0; i < cc; ++i) n->children.push_back(decodeNode(in, depth + 1));
+
+    if(cc > 0) {
+        n->children.reserve(cc);
+        auto first = decodeNode(in, depth + 1, lkln);
+        if(first->type == ASTNode::Type::INTEGER && first->children.size() == 0) {
+            n->lineNumber = std::stoi(first->strValue);
+            lkln = n->lineNumber;
+        } else {
+            n->lineNumber = -1; 
+            n->children.push_back(first);
+        }
+        for (uint32_t i = 1; i < cc; ++i) n->children.push_back(decodeNode(in, depth + 1, lkln));
+    }
+
     return n;
 }
 
@@ -262,6 +274,6 @@ std::shared_ptr<ParsedASTNode> Lumper::unlump(const std::string &loc) {
     if (cc > 10000000) throw std::runtime_error("Top-level child count unreasonable");
 
     root->children.reserve(cc);
-    for (uint32_t i = 0; i < cc; ++i) root->children.push_back(decodeNode(iss, 0));
+    for (uint32_t i = 0; i < cc; ++i) root->children.push_back(decodeNode(iss, 0, 1));
     return root;
 }

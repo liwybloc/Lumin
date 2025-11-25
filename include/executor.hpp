@@ -33,6 +33,8 @@ struct ParsedASTNode {
 
     std::vector<std::shared_ptr<ParsedASTNode>> children;
 
+    int lineNumber;
+
     std::shared_ptr<ASTNode> toAST() const {
         auto node = std::make_shared<ASTNode>();
         node->type = type;
