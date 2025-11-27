@@ -34,6 +34,7 @@ struct ParsedASTNode {
     std::vector<std::shared_ptr<ParsedASTNode>> children;
 
     int lineNumber;
+    std::string fileName;
 
     std::shared_ptr<ASTNode> toAST() const {
         auto node = std::make_shared<ASTNode>();
@@ -48,6 +49,11 @@ struct ParsedASTNode {
     }
 };
 
+[[noreturn]] inline void error(const std::shared_ptr<ParsedASTNode> node, const std::string &msg) {
+    std::cerr << "Error: " << msg << " at " << node->fileName.c_str() << ":" << node->lineNumber << std::endl;
+    exit(1);
+}
+
 enum class BaseType { Int, Bool, String, Char, Unknown, Array, Function, Struct, ExportData, NIL };
 
 struct StructType;
@@ -57,6 +63,7 @@ struct ExportData;
 struct TypedValue;
 struct Type;
 struct Array;
+class Executor;
 
 struct Type {
     BaseType kind;
@@ -73,7 +80,8 @@ struct Type {
             case Primitive::STRING: kind = BaseType::String; break;
             case Primitive::CHAR: kind = BaseType::Char; break;
             case Primitive::UNKNOWN: kind = BaseType::Unknown; break;
-            default: throw std::runtime_error("Invalid primitive type - " + std::to_string(static_cast<int>(prim)));
+            default:
+                throw std::runtime_error("Invalid primitive type");
         }
     }
 
@@ -170,13 +178,14 @@ struct Parameter {
 };
 
 struct Function {
-    std::function<std::shared_ptr<TypedValue>(const std::vector<std::shared_ptr<TypedValue>>&)> fn;
+    std::function<std::shared_ptr<TypedValue>(const std::vector<std::shared_ptr<TypedValue>>&, const std::shared_ptr<ParsedASTNode>&)> fn;
 };
 
 struct _FunctionData {
     std::vector<Parameter> params;
     Type retType;
     std::shared_ptr<ParsedASTNode> body;
+    std::shared_ptr<ParsedASTNode> node;
 };
 using FunctionData = std::shared_ptr<_FunctionData>;
 
@@ -201,22 +210,22 @@ public:
         hiddenFields.emplace_back(fieldName, value);
     }
 
-    TypedValue& getField(const std::string &fieldName) {
+    TypedValue& getField(const std::string &fieldName, Executor *executor, std::shared_ptr<ParsedASTNode> node) {
         auto it = fieldIndexMap.find(fieldName);
-        if (it == fieldIndexMap.end()) throw std::runtime_error("Field not found: " + fieldName);
+        if (it == fieldIndexMap.end()) error(node, "Field not found: " + fieldName);
         return fields[it->second].second;
     }
 
-    std::any& getHiddenField(const std::string &fieldName) {
+    std::any& getHiddenField(const std::string &fieldName, Executor *executor, std::shared_ptr<ParsedASTNode> node) {
         auto it = std::find_if(hiddenFields.begin(), hiddenFields.end(),
                                [&fieldName](const auto &pair){ return pair.first == fieldName; });
-        if (it == hiddenFields.end()) throw std::runtime_error("Hidden field not found: " + fieldName);
+        if (it == hiddenFields.end()) error(node, "Hidden field not found: " + fieldName);
         return it->second;
     }
 
-    void setField(const std::string &fieldName, const TypedValue &value) {
+    void setField(const std::string &fieldName, const TypedValue &value, Executor *executor, std::shared_ptr<ParsedASTNode> node) {
         auto it = fieldIndexMap.find(fieldName);
-        if (it == fieldIndexMap.end()) throw std::runtime_error("Field not found: " + fieldName);
+        if (it == fieldIndexMap.end()) error(node, "Field not found: " + fieldName);
         fields[it->second].second = value;
     }
 };
@@ -258,13 +267,13 @@ public:
     void setType(const std::string &name, const std::shared_ptr<StructType> &type) { structTypes[name] = type; }
 
     void pushSelfRef(const TypedValue &val) { selfRefStack.push(val); }
-    void popSelfRef() {
+    void popSelfRef(std::shared_ptr<ParsedASTNode> node) {
         if (!selfRefStack.empty()) selfRefStack.pop();
-        else throw std::runtime_error("Attempted to pop empty selfRef stack");
+        else error(node, "Attempted to pop empty selfRef stack");
     }
-    TypedValue currentSelfRef() const {
+    TypedValue currentSelfRef(std::shared_ptr<ParsedASTNode> node) const {
         if (!selfRefStack.empty()) return selfRefStack.top();
-        throw std::runtime_error("selfRef stack is empty");
+        error(node, "selfRef stack is empty");
     }
     bool hasSelfRef() const { return !selfRefStack.empty(); }
 
@@ -282,10 +291,11 @@ public:
 
     bool has(const std::string &name) const { return variables.find(name) != variables.end(); }
 
-    TypedValue get(const std::string &name) {
+    TypedValue get(const std::string &name, std::shared_ptr<ParsedASTNode> node) {
+        if(hasSelfRef() && name == "@") return currentSelfRef(node);
         if (variables.find(name) != variables.end()) return variables[name];
-        if (parent) return parent->get(name);
-        throw std::runtime_error("Undefined variable: " + name);
+        if (parent) return parent->get(name, node);
+        error(node, "Undefined variable: " + name);
     }
 
     std::shared_ptr<Environment> parent;
@@ -307,25 +317,20 @@ struct ExportData {
         exports[name] = { env, name };
     }
 
-    TypedValue getExportedValue(const std::string &name) {
+    std::shared_ptr<TypedValue> getExportedValue(const std::string &name, Executor *executor, std::shared_ptr<ParsedASTNode> node) {
         auto it = exports.find(name);
-        if (it == exports.end()) throw std::runtime_error("Export not found: " + name);
-        return it->second.first->get(it->second.second);
+        if (it == exports.end()) return nullptr;
+        return std::make_shared<TypedValue>(it->second.first->get(it->second.second, node));
     }
 };
 
 class Executor {
 public:
     explicit Executor(std::shared_ptr<ParsedASTNode> root);
-    void printArray(std::ostream *out, const std::shared_ptr<Array> &arr);
-    void printStruct(std::ostream *out, const std::shared_ptr<Struct> &st);
-    void printValue(std::ostream *out, const TypedValue &val);
+    void printArray(const std::shared_ptr<ParsedASTNode> node, std::ostream *out, const std::shared_ptr<Array> &arr);
+    void printStruct(const std::shared_ptr<ParsedASTNode> node, std::ostream *out, const std::shared_ptr<Struct> &st);
+    void printValue(const std::shared_ptr<ParsedASTNode> node, std::ostream *out, const TypedValue &val);
     TypedValue run();
-    
-    [[noreturn]] void error(const std::string &msg) {
-        std::cerr << "Error: " << msg << std::endl;
-        exit(1);
-    }
 
     std::vector<int> getIndices(const std::shared_ptr<Array> &arr,
                                 const std::shared_ptr<ParsedASTNode> &indicesNode,
@@ -334,31 +339,31 @@ public:
 
         for (const auto &idxNode : indicesNode->children) {
             if (idxNode->type == ASTNode::Type::RANGE) {
-                int start = getIntValue(evaluateExpression(idxNode->children[0], env));
-                int end   = getIntValue(evaluateExpression(idxNode->children[1], env));
+                int start = getIntValue(evaluateExpression(idxNode->children[0], env), idxNode->children[0]);
+                int end   = getIntValue(evaluateExpression(idxNode->children[1], env), idxNode->children[1]);
                 for (int i = start; i <= end; ++i) {
                     env->pushSelfRef(i);
                     indices.push_back(i);
-                    env->popSelfRef();
+                    env->popSelfRef(idxNode);
                 }
             } else {
-                int val = getIntValue(evaluateExpression(idxNode, env));
+                int val = getIntValue(evaluateExpression(idxNode, env), idxNode);
                 env->pushSelfRef(val);
                 indices.push_back(val);
-                env->popSelfRef();
+                env->popSelfRef(idxNode);
             }
         }
 
         return indices;
     }
 
-    int getIntValue(const TypedValue &val);
-    bool getBoolValue(const TypedValue &val);
-    std::string getStringValue(const TypedValue &val);
+    int getIntValue(const TypedValue &val, const std::shared_ptr<ParsedASTNode> &node);
+    bool getBoolValue(const TypedValue &val, const std::shared_ptr<ParsedASTNode> &node);
+    std::string getStringValue(const TypedValue &val, const std::shared_ptr<ParsedASTNode> &node);
 
     TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices);
     TypedValue arrayOperation(const std::shared_ptr<Array> &arr, const std::vector<int> &indices, std::shared_ptr<ParsedASTNode> valNode, ENV env);
-    void parseArg(std::shared_ptr<Environment> env, Parameter *param, std::shared_ptr<TypedValue> arg, int i);
+    void parseArg(std::shared_ptr<Environment> env, const std::shared_ptr<ParsedASTNode> node, Parameter *param, std::shared_ptr<TypedValue> arg, int i);
     TypedValue evaluateExpression(std::shared_ptr<ParsedASTNode> node, ENV env);
 
 private:
@@ -375,7 +380,7 @@ private:
     void handleStructDeclaration(std::shared_ptr<ParsedASTNode> node, ENV env);
     TypedValue handleStructAssignment(std::shared_ptr<ParsedASTNode> node, ENV env);
 
-    void handleImports(std::vector<std::shared_ptr<ParsedASTNode>> children, ENV env);
+    void handleImports(std::shared_ptr<ParsedASTNode> node, ENV env);
 
     void executePragma(std::shared_ptr<ParsedASTNode> node, ENV env);
 
@@ -386,17 +391,18 @@ private:
     ReturnValue executeNode(std::shared_ptr<ParsedASTNode> node, ENV env, bool extraBit = false);
 
     ReturnValue executeBlock(const std::vector<std::shared_ptr<ParsedASTNode>> &nodes, ENV env);
-    TypedValue readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property);
+    TypedValue readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property, const std::shared_ptr<ParsedASTNode> &node);
     TypedValue handleReadAssignment(std::shared_ptr<ParsedASTNode> node, ENV env, std::shared_ptr<ParsedASTNode> valNode);
-    TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property);
-    TypedValue evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
-    TypedValue evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
-    TypedValue evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs);
-    TypedValue primitiveValue(const Primitive val);
+    TypedValue evaluateReadProperty(const TypedValue &target, const std::string &property, const std::shared_ptr<ParsedASTNode> &node);
+    TypedValue evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs, const std::shared_ptr<ParsedASTNode> &node);
+    TypedValue evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs, const std::shared_ptr<ParsedASTNode> &node);
+    TypedValue evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs, const std::shared_ptr<ParsedASTNode> &node);
+    TypedValue evalTernaryOp(std::shared_ptr<ParsedASTNode> node, ENV env);
+    TypedValue primitiveValue(const Primitive val, const std::shared_ptr<ParsedASTNode> &node);
     TypedValue handleAssignment(std::shared_ptr<ParsedASTNode> node, ENV env, Primitive primVal, bool modify);
     std::shared_ptr<Function> createFunction(FunctionData funcData, ENV closureEnv);
     template <typename T>
-    TypedValue readOnArray(std::shared_ptr<T> arr, const std::string &property);
+    TypedValue readOnArray(std::shared_ptr<T> arr, const std::string &property, const std::shared_ptr<ParsedASTNode> &node);
 };
 
 #endif

@@ -140,36 +140,6 @@ std::shared_ptr<ASTNode> Parser::parseDeclarationWithTypeAndName(
     return node;
 }
 
-// std::shared_ptr<ASTNode> Parser::parseStructInitializer(const Token &nameTok, const std::string type) {
-//     expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
-
-//     auto initNode = makeTypedNode(ASTNode::Type::STRUCT_ASSIGNMENT, 0);
-//     initNode->strValue = nameTok.value;
-
-//     if(type != "") {
-//         auto typeNode = makeTypedNode(ASTNode::Type::STRING, 1);
-//         typeNode->strValue = type;
-//         initNode->children.push_back(typeNode);
-//     }
-
-//     while (!match(Token::Type::RBRACE)) {
-//         if (match(Token::Type::IDENTIFIER) && match(Token::Type::COLON, 1)) {
-//             auto member = consume().value;
-//             consume();
-//             auto assign = makeTypedNode(ASTNode::Type::PRIMITIVE_ASSIGNMENT, 1);
-//             assign->strValue = member;
-//             assign->children.push_back(parseExpression());
-//             initNode->children.push_back(assign);
-//         } else {
-//             initNode->children.push_back(parseExpression());
-//         }
-//         if (match(Token::Type::COMMA)) consume();
-//     }
-
-//     expect(Token::Type::RBRACE, "Expected '}' after struct initializer", true);
-//     return initNode;
-// }
-
 std::shared_ptr<ASTNode> Parser::parseIdentifier(const Token &ident, bool dataBit) {
     switch(peek(1).type) {
         case Token::Type::LBRACE: {
@@ -228,8 +198,11 @@ std::shared_ptr<ASTNode> Parser::parseIdentifier(const Token &ident, bool dataBi
                 assignNode->children.push_back(_bool);
                 assignNode->strValue = nameTok.value;
                 auto initNode = parseExpression();
-                expect(Token::Type::SEMICOLON, "Expected ';' after struct declaration", true);
+                expect(Token::Type::SEMICOLON, "Expected ';' after struct assignment", true);
                 assignNode->children.push_back(initNode);
+                auto type = makeTypedNode(ASTNode::Type::STRING, 1);
+                type->strValue = ident.value;
+                assignNode->children.push_back(type);
                 return assignNode;
             }
             return parseDeclarationWithTypeAndName(ident, nameTok, false, arraySize, isArray, dataBit);
@@ -255,16 +228,14 @@ std::shared_ptr<ASTNode> Parser::parseStatement(int depth, bool dataBit) {
     auto lineNode = makeTypedNode(ASTNode::Type::INTEGER, 1);
     lineNode->strValue = std::to_string(peek().lineIndex);
     auto parsedStmt = parseStatementPre(depth, dataBit);
-    printf("B %d\n", parsedStmt->type);
+    if(parsedStmt == nullptr) return parseStatement(depth, dataBit);
     parsedStmt->children.insert(parsedStmt->children.begin(), lineNode);
-    printf("B\n");
     return parsedStmt;
 }
 
 std::shared_ptr<ASTNode> Parser::parseStatementPre(int depth, bool dataBit) {
     const Token &tok = peek();
 
-    printf("Parsing statement at token %s\n", typeToString(tok.type).c_str());
     switch (tok.type) {
         case Token::Type::LBRACE:
             return parseBlock(depth + 1);
@@ -312,8 +283,31 @@ std::shared_ptr<ASTNode> Parser::parseBlock(int depth) {
 }
 
 std::shared_ptr<ASTNode> Parser::parseExpression() {
-    return parseBinaryOp(parsePrimary());
+    return parseTernary(0);
 }
+
+std::shared_ptr<ASTNode> Parser::parseTernary(int minPrec) {
+    auto condition = parseBinaryOp(parsePrimary(), minPrec);
+
+    if (!match(Token::Type::QMARK)) {
+        return condition;
+    }
+
+    consume();
+    auto trueExpr = parseExpression();
+
+    expect(Token::Type::COLON, "Expected ':' in ternary operator", true);
+
+    auto falseExpr = parseExpression();
+
+    auto node = makeTypedNode(ASTNode::Type::BINARY_OP, 0);
+    node->binopValue = BinaryOp::TERNARY;
+    node->children.push_back(condition);
+    node->children.push_back(trueExpr);
+    node->children.push_back(falseExpr);
+    return node;
+}
+
 
 std::shared_ptr<ASTNode> Parser::parsePrimary() {
     const Token &tok = peek();
@@ -345,7 +339,8 @@ std::shared_ptr<ASTNode> Parser::parsePrimary() {
 
     if (tok.type == Token::Type::SELF_REFERENCE) {
         consume();
-        std::shared_ptr<ASTNode> node = makeTypedNode(ASTNode::Type::SELF_REFERENCE, 0);
+        std::shared_ptr<ASTNode> node = makeTypedNode(ASTNode::Type::IDENTIFIER, 0);
+        node->strValue = "@";
 
         while (true) {
             if (match(Token::Type::LBRACKET)) {

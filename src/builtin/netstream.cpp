@@ -11,7 +11,7 @@ void addNetstream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
     globalEnv->setType("File", sharedFT);
 
     globalEnv->set("fetch", {std::make_shared<Function>(Function{
-        [executor](const std::vector<std::shared_ptr<TypedValue>> &args) -> std::shared_ptr<TypedValue> {
+        [executor](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
             // Implement fetching data from a network source
             // Return the fetched data as a string
             return std::make_shared<TypedValue>("Fetched data");

@@ -238,7 +238,7 @@ KWMAP Parser::initKwMap() const {
                 p->expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
                 while (p->peek().type != Token::Type::RBRACE && p->peek().type != Token::Type::END_OF_FILE) {
                     if (p->match(Token::Type::PRIMITIVE) || p->match(Token::Type::IDENTIFIER))
-                        node->children.push_back(p->parseStatement(depth + 1));
+                        node->children.push_back(p->parseStatementPre(depth + 1, false));
                     else
                         break;
                 }
@@ -252,7 +252,7 @@ KWMAP Parser::initKwMap() const {
             [](Parser* p, int depth) {
                 if (depth != 0)
                     p->error("Import statements are only allowed at top-level");
-
+                    
                 auto node = makeNode(ASTNode::Type::STRING);
                 node->valueType = 1;
                 node->strValue = p->expect(Token::Type::STRING, "Expected import string", true).value;
@@ -367,7 +367,7 @@ std::string typeToString(Token::Type type) {
         case Token::Type::BITWISE_OR: return "BITWISE_OR";
         case Token::Type::BITWISE_XOR: return "BITWISE_XOR";
         case Token::Type::BITWISE_NOT: return "BITWISE_NOT";
-        case Token::Type::QUESTION_MARK: return "QUESTION_MARK";
+        case Token::Type::QMARK: return "QMARK";
         case Token::Type::COLON: return "COLON";
         case Token::Type::INCREMENT: return "INCREMENT";
         case Token::Type::DECREMENT: return "DECREMENT";
@@ -390,7 +390,6 @@ std::string astTypeToString(ASTNode::Type type) {
         case ASTNode::Type::STRING: return "STRING";
         case ASTNode::Type::BOOL: return "BOOL";
         case ASTNode::Type::IDENTIFIER: return "IDENTIFIER";
-        case ASTNode::Type::SELF_REFERENCE: return "SELF_REFERENCE";
         case ASTNode::Type::BINARY_OP: return "BINARY_OP";
         case ASTNode::Type::UNARY_OP: return "UNARY_OP";
         case ASTNode::Type::PRIMITIVE_ASSIGNMENT: return "PRIMITIVE_ASSIGNMENT";

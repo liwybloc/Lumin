@@ -1,20 +1,12 @@
 import "outstream";
-import "filestream";
 
 struct Bob {
-    string name;
-    int age;
 };
+struct BobTheBuilder { };
 
 fin main() -> int {
+    Bob bob = new Bob{};
 
-    if(5 > 10) {
-        return 5;
-    }
-
-    Bob bob = new Bob{name: "Bob", age: 30};
-
-    print(bob);
-
+    printf("Bob is 30 ? no clue, here's bob tho {}\n", bob);
     return 0;
 }

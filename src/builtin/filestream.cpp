@@ -15,11 +15,11 @@ void addFilestream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
     globalEnv->setType("File", sharedFT);
 
     globalEnv->set("fopen", std::make_shared<Function>(Function{
-        [executor, sharedFT](const std::vector<std::shared_ptr<TypedValue>> &args) -> std::shared_ptr<TypedValue> {
+        [executor, sharedFT](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
             if (args.size() < 2) throw std::runtime_error("fopen requires filename and mode");
 
-            std::string filename = executor->getStringValue(*args[0]);
-            std::string mode = executor->getStringValue(*args[1]);
+            std::string filename = executor->getStringValue(*args[0], callNode);
+            std::string mode = executor->getStringValue(*args[1], callNode);
 
             std::ios_base::openmode openMode = std::ios::binary;
             if (mode == "r") openMode = std::ios::in | std::ios::binary;
@@ -42,45 +42,45 @@ void addFilestream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
     }));
 
     globalEnv->set("fclose", std::make_shared<Function>(Function{
-        [](const std::vector<std::shared_ptr<TypedValue>> &args) -> std::shared_ptr<TypedValue> {
+        [executor](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
             if (args.empty()) throw std::runtime_error("fclose requires a File struct");
             auto file = args[0]->get<std::shared_ptr<Struct>>();
 
-            auto stream = std::any_cast<std::shared_ptr<std::fstream>>(file->getHiddenField("stream"));
+            auto stream = std::any_cast<std::shared_ptr<std::fstream>>(file->getHiddenField("stream", executor, callNode));
             if (stream && stream->is_open()) stream->close();
 
-            file->setField("is_open", false);
+            file->setField("is_open", false, executor, callNode);
             return std::make_shared<TypedValue>(0);
         }
     }));
 
     globalEnv->set("fwrite", std::make_shared<Function>(Function{
-        [executor](const std::vector<std::shared_ptr<TypedValue>> &args) -> std::shared_ptr<TypedValue> {
+        [executor](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
             if (args.size() < 2) throw std::runtime_error("fwrite requires a File struct and string");
             auto file = args[0]->get<std::shared_ptr<Struct>>();
-            auto stream = std::any_cast<std::shared_ptr<std::fstream>>(file->getHiddenField("stream"));
+            auto stream = std::any_cast<std::shared_ptr<std::fstream>>(file->getHiddenField("stream", executor, callNode));
             if (!stream || !stream->is_open())
                 throw std::runtime_error("File is not open");
 
-            std::string data = executor->getStringValue(*args[1]);
+            std::string data = executor->getStringValue(*args[1], callNode);
             (*stream) << data;
             stream->flush();
 
             stream->seekp(0, std::ios::end);
-            file->setField("size", static_cast<int>(stream->tellp()));
+            file->setField("size", static_cast<int>(stream->tellp()), executor, callNode);
 
             return std::make_shared<TypedValue>(0);
         }
     }));
 
     globalEnv->set("fread", std::make_shared<Function>(Function{
-        [sharedFT](const std::vector<std::shared_ptr<TypedValue>> &args) -> std::shared_ptr<TypedValue> {
+        [sharedFT, executor](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
             if (args.empty()) throw std::runtime_error("fread requires a File struct");
 
             if(!sharedFT->match(args[0]->type)) throw std::runtime_error("fread expects a File struct");
 
             auto file = args[0]->get<std::shared_ptr<Struct>>();
-            auto stream = std::any_cast<std::shared_ptr<std::fstream>>(file->getHiddenField("stream"));
+            auto stream = std::any_cast<std::shared_ptr<std::fstream>>(file->getHiddenField("stream", executor, callNode));
             if (!stream || !stream->is_open())
                 throw std::runtime_error("File is not open");
 
@@ -96,6 +96,37 @@ void addFilestream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
                 std::string content((std::istreambuf_iterator<char>(*stream)), std::istreambuf_iterator<char>());
                 return std::make_shared<TypedValue>(content);
             }
+        }
+    }));
+
+        globalEnv->set("fwrite_buf", std::make_shared<Function>(Function{
+        [executor](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
+            if (args.size() < 2) throw std::runtime_error("fwrite_buf requires a File struct and string");
+            auto file = args[0]->get<std::shared_ptr<Struct>>();
+            auto stream = std::any_cast<std::shared_ptr<std::fstream>>(file->getHiddenField("stream", executor, callNode));
+            if (!stream || !stream->is_open())
+                throw std::runtime_error("File is not open");
+
+            std::string data = executor->getStringValue(*args[1], callNode);
+            (*stream) << data;
+
+            return std::make_shared<TypedValue>(0);
+        }
+    }));
+
+    globalEnv->set("fflush", std::make_shared<Function>(Function{
+        [executor](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
+            if (args.empty()) throw std::runtime_error("fflush requires a File struct");
+            auto file = args[0]->get<std::shared_ptr<Struct>>();
+            auto stream = std::any_cast<std::shared_ptr<std::fstream>>(file->getHiddenField("stream", executor, callNode));
+            if (!stream || !stream->is_open())
+                throw std::runtime_error("File is not open");
+
+            stream->flush();
+            stream->seekp(0, std::ios::end);
+            file->setField("size", static_cast<int>(stream->tellp()), executor, callNode);
+
+            return std::make_shared<TypedValue>(0);
         }
     }));
 }

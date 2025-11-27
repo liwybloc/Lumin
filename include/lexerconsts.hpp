@@ -19,7 +19,7 @@ const std::unordered_map<std::string, Token::Type> operators = {
     {"(", Token::Type::LPAREN}, {")", Token::Type::RPAREN},
     {"[", Token::Type::LBRACKET}, {"]", Token::Type::RBRACKET},
     {"{", Token::Type::LBRACE}, {"}", Token::Type::RBRACE},
-    {"?", Token::Type::QUESTION_MARK}, {":", Token::Type::COLON},
+    {"?", Token::Type::QMARK}, {":", Token::Type::COLON},
     // {"@", Token::Type::SELF_REFERENCE}, 
     {".", Token::Type::READ}, {"...", Token::Type::SPREAD},
 };

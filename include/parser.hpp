@@ -24,7 +24,6 @@ struct ASTNode {
         CHAR,
         BOOL,
         IDENTIFIER,
-        SELF_REFERENCE,
 
         BINARY_OP,
         UNARY_OP,
@@ -167,6 +166,7 @@ private:
     std::shared_ptr<ASTNode> parseStatementPre(int depth, bool dataBit);
     std::shared_ptr<ASTNode> parseBlock(int depth);
     std::shared_ptr<ASTNode> parseExpression();
+    std::shared_ptr<ASTNode> parseTernary(int minPrec);
     std::shared_ptr<ASTNode> parsePrimary();
     std::shared_ptr<ASTNode> parseBinaryOp(std::shared_ptr<ASTNode> left, int minPrecedence = 0);
     int getPrecedence(Token::Type type) const;

@@ -28,7 +28,7 @@ TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ParsedASTNode> node
 
     std::vector<int> shape;
     for (size_t i = 1; i < node->children.size() - 1; ++i)
-        shape.push_back(getIntValue(evaluateExpression(node->children[i], env)));
+        shape.push_back(getIntValue(evaluateExpression(node->children[i], env), node->children[i]));
 
     int totalElements = 1;
     for (auto dim : shape) totalElements *= dim;
@@ -78,7 +78,7 @@ TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ParsedASTNode> node
                 }
 
                 resultArr->elements.push_back(finalVal);
-                env->popSelfRef();
+                env->popSelfRef(node);
             }
             break;
         }
@@ -112,7 +112,7 @@ TypedValue Executor::handleNDArrayAssignment(std::shared_ptr<ParsedASTNode> node
                     indexArr->elements[d] = TypedValue(0);
                 }
             }
-            env->popSelfRef();
+            env->popSelfRef(node);
             break;
         }
     }
@@ -141,7 +141,7 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node,
     
     auto structType = env->getType(node->strValue);
     if (!structType)
-        error("Unknown struct type: " + node->strValue);
+        error(node, "Unknown struct type: " + node->strValue);
 
     auto structDef = std::static_pointer_cast<StructType>(structType);
     auto instance = std::make_shared<Struct>(node->strValue, structType);
@@ -149,7 +149,7 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node,
     std::vector<std::shared_ptr<ParsedASTNode>> args = node->children;
 
     if (args.size() != structDef->fields.size())
-        error("Struct assignment has incorrect number of arguments");
+        error(node, "Struct assignment has incorrect number of arguments");
 
     for (size_t i = 0; i < structDef->fields.size(); ++i) {
         auto &field = structDef->fields[i];
@@ -159,13 +159,13 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node,
         if (argNode->type == ASTNode::Type::PRIMITIVE_ASSIGNMENT) {
             const std::string fieldName = argNode->strValue;
             TypedValue inner = evaluateExpression(argNode->children[0], env);
-            if (!inner.type.match(field.second))
-                error("Type mismatch for field: " + fieldName);
+            if (!field.second.match(inner.type))
+                error(node, "Type mismatch for field: " + fieldName);
             val = inner;
         } else {
             TypedValue literal = evaluateExpression(argNode, env);
             if (!literal.type.match(field.second))
-                error("Type mismatch for field at index " + std::to_string(i));
+                error(node, "Type mismatch for field at index " + std::to_string(i));
             val = literal;
         }
 
@@ -176,34 +176,35 @@ TypedValue Executor::handleStructAssignment(std::shared_ptr<ParsedASTNode> node,
     return finalVal;
 }
 
-int Executor::getIntValue(const TypedValue &val) {
+int Executor::getIntValue(const TypedValue &val, const std::shared_ptr<ParsedASTNode> &node) {
     switch(val.type.kind) {
         case BaseType::Bool: return val.get<bool>() ? 1 : 0;
         case BaseType::Int: return val.get<int>();
         case BaseType::Char: return static_cast<int>(val.get<char>());
-        default: error("Expected integer value");
+        default: error(node, "Expected integer value");
     }
 }
 
-bool Executor::getBoolValue(const TypedValue &val) {
+bool Executor::getBoolValue(const TypedValue &val, const std::shared_ptr<ParsedASTNode> &node) {
     switch(val.type.kind) {
         case BaseType::Bool: return val.get<bool>();
         case BaseType::Int: return val.get<int>() != 0;
-        default: error("Expected boolean value");
+        case BaseType::String: return !val.get<std::string>().empty();
+        default: error(node, "Expected boolean value");
     }
 }
 
-std::string Executor::getStringValue(const TypedValue &val) {
-    if(!val.type.match(BaseType::String)) error("Expected string value");
+std::string Executor::getStringValue(const TypedValue &val, const std::shared_ptr<ParsedASTNode> &node) {
+    if(!val.type.match(BaseType::String)) error(node, "Expected string value");
     return val.get<std::string>();
 }
 
-TypedValue Executor::primitiveValue(const Primitive val) {
+TypedValue Executor::primitiveValue(const Primitive val, const std::shared_ptr<ParsedASTNode> &node) {
     switch (val) {
         case Primitive::INT: return 0;
         case Primitive::STRING: return "";
         case Primitive::BOOL: return false;
-        default: error("Invalid primitive value");
+        default: error(node, "Invalid primitive value");
     }
 }
 
@@ -242,7 +243,7 @@ TypedValue Executor::handleAssignment(
         for (size_t i = 1; i < arrayNode->children.size(); ++i) {
             TypedValue nextVal = evaluateExpression(arrayNode->children[i], env);
             if (!nextVal.type.match(elemType))
-                error(
+                error(arrayNode, 
                     "Array literal contains mixed types: " + elemType.toString() + " vs " + nextVal.type.toString()
                 );
         }
@@ -254,7 +255,7 @@ TypedValue Executor::handleAssignment(
         TypedValue parentVal = evaluateExpression(readNode->children[0], env);
 
         if (!parentVal.type.match(BaseType::Struct))
-            error("Left-hand side of assignment is not a struct or object");
+            error(node, "Left-hand side of assignment is not a struct or object");
 
         auto strPtr = parentVal.get<std::shared_ptr<Struct>>();
         const std::string &prop = readNode->children[1]->strValue;
@@ -262,7 +263,7 @@ TypedValue Executor::handleAssignment(
         auto it = std::find_if(strPtr->fields.begin(), strPtr->fields.end(),
                                [&prop](const auto &pair){ return pair.first == prop; });
         if (it == strPtr->fields.end())
-            error("Struct does not have field: " + prop);
+            error(node, "Struct does not have field: " + prop);
 
         env->pushSelfRef(it->second);
         TypedValue rhsVal = evaluateExpression(node->children[idx + 1], env);
@@ -274,23 +275,23 @@ TypedValue Executor::handleAssignment(
         }
 
         if (!rhsVal.type.match(it->second.type))
-            error("Incompatible types for assignment; expected " +
+            error(node, "Incompatible types for assignment; expected " +
                                      it->second.type.toString() + " but got " +
                                      rhsVal.type.toString() + " for field: " + prop);
 
         it->second = rhsVal;
-        env->popSelfRef();
+        env->popSelfRef(node);
         return rhsVal;
     }
 
     TypedValue val;
     if (isModify) {
-        env->pushSelfRef(env->get(node->strValue));
+        env->pushSelfRef(env->get(node->strValue, node));
     }
 
     if (node->children.size() > 0) {
         if (hadFlag) {
-            int exprIndex = (int)node->children.size() - 1;
+            int exprIndex = (int)node->children.size() - 2;
             if (exprIndex >= idx && node->children[exprIndex] != nullptr)
                 val = evaluateExpression(node->children[exprIndex], env);
             else
@@ -305,8 +306,8 @@ TypedValue Executor::handleAssignment(
     Type expectedType;
     if(primVal != Primitive::NONE) {
         if(node->children.size() > 1
-            && (node->children.back()->type == ASTNode::Type::ARRAY_LITERAL || node->children.back()->type == ASTNode::Type::SIZED_ARRAY_DECLARE)) {
-            Type inferred = inferArrayType(node->children.back(), env);
+            && (node->children[1]->type == ASTNode::Type::ARRAY_LITERAL || node->children[1]->type == ASTNode::Type::SIZED_ARRAY_DECLARE)) {
+            Type inferred = inferArrayType(node->children[1], env);
             val.type = inferred;
             expectedType = inferred;
         } else
@@ -317,14 +318,27 @@ TypedValue Executor::handleAssignment(
         expectedType = val.type;
     }
 
+    if (val.type.match(BaseType::Struct)) {
+        auto &declTypeNode = node->children[2];
+        const std::string &declaredStruct = declTypeNode->strValue;
+        const std::string &actualStruct = val.type.customName;
+
+        if (declaredStruct != actualStruct) {
+            error(node,
+                "Incompatible struct assignment; expected " +
+                declaredStruct + " but got " + actualStruct +
+                " for member: " + node->strValue);
+        }
+    }
+
     if (!val.type.match(expectedType))
-        error("Incompatible types for assignment; expected " +
+        error(node, "Incompatible types for assignment; expected " +
                                  expectedType.toString() + " but got " +
                                  val.type.toString() + " for member: " + node->strValue);
 
     if (isModify) {
         env->modify(node->strValue, val);
-        env->popSelfRef();
+        env->popSelfRef(node);
     } else {
         env->set(node->strValue, val);
     }
@@ -333,17 +347,17 @@ TypedValue Executor::handleAssignment(
 }
 
 template<typename T>
-TypedValue Executor::readOnArray(std::shared_ptr<T> arr, const std::string &property) {
+TypedValue Executor::readOnArray(std::shared_ptr<T> arr, const std::string &property, const std::shared_ptr<ParsedASTNode> &node) {
     if (property == "length") return TypedValue(static_cast<int>(arr->elements.size()));
-    error("Unknown array property: " + property);
+    error(node, "Unknown array property: " + property);
 }
 
-TypedValue Executor::readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property) {
+TypedValue Executor::readOnStruct(const std::shared_ptr<Struct> &str, const std::string &property, const std::shared_ptr<ParsedASTNode> &node) {
     auto it = std::find_if(str->fields.begin(), str->fields.end(),
         [&property](const auto& pair){ return pair.first == property; });
 
     if (it == str->fields.end()) {
-        error("Struct does not have field: " + property);
+        error(node, "Struct does not have field: " + property);
     }
 
     return it->second;
@@ -355,7 +369,7 @@ TypedValue Executor::handleReadAssignment(
     std::shared_ptr<ParsedASTNode> valNode
 ) {
     if (readNode->type != ASTNode::Type::READ)
-        error("Expected READ node for member assignment");
+        error(readNode, "Expected READ node for member assignment");
 
     TypedValue parentVal = evaluateExpression(readNode->children[0], env);
     const std::string &prop = readNode->children[1]->strValue;
@@ -367,7 +381,7 @@ TypedValue Executor::handleReadAssignment(
             auto it = std::find_if(str->fields.begin(), str->fields.end(),
                 [&prop](const auto &pair){ return pair.first == prop; });
             if (it == str->fields.end())
-                error("Struct does not have field: " + prop);
+                error(readNode, "Struct does not have field: " + prop);
 
             it->second = val;
             break;
@@ -375,63 +389,71 @@ TypedValue Executor::handleReadAssignment(
         case BaseType::Array: {
             auto arr = parentVal.get<std::shared_ptr<Array>>();
             if(prop == "length")
-                error("Cannot modify array length");
-            error("Cannot modify array elements");
+                error(readNode, "Cannot modify array length");
+            error(readNode, "Cannot modify array elements");
             break;
         }
         default:
-            error("Cannot assign to non-object property");
+            error(readNode, "Cannot assign to non-object property");
     }
 
     return val;
 }
 
 
-TypedValue Executor::evaluateReadProperty(const TypedValue &target, const std::string &property) {
+TypedValue Executor::evaluateReadProperty(const TypedValue &target, const std::string &property, const std::shared_ptr<ParsedASTNode> &node) {
     switch(target.type.kind) {
         case BaseType::Struct: {
             auto str = target.get<std::shared_ptr<Struct>>();
-            return readOnStruct(str, property);
+            return readOnStruct(str, property, node);
         }
         case BaseType::Array: {
             auto arr = target.get<std::shared_ptr<Array>>();
-            return readOnArray(arr, property);
+            return readOnArray(arr, property, node);
         }
         case BaseType::ExportData: {
             auto exp = target.get<std::shared_ptr<ExportData>>();
-            return exp->getExportedValue(property);
+            auto val = exp->getExportedValue(property, this, node);
+            if (!val) error(node, "Unknown export property: " + property);
+            return *val;
         }
         case BaseType::String: {
             auto str = target.get<std::string>();
             if (property == "length") return TypedValue(static_cast<int>(str.size()));
-            error("Unknown string property: " + property);
+            error(node, "Unknown string property: " + property);
         }
         default:
-            error("Attempted READ on non-object");
+            error(node, "Attempted READ on non-object");
     }
 }
 
-TypedValue Executor::evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs) {
+TypedValue Executor::evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs, const std::shared_ptr<ParsedASTNode> &node) {
     switch (op) {
         case PLUS: {
             if(lhs.type.kind == BaseType::Int) {
-                const int L = getIntValue(lhs);
-                const int R = getIntValue(rhs);
+                const int L = getIntValue(lhs, node);
+                if(rhs.type.kind == BaseType::String) {
+                    std::ostringstream out;
+                    printValue(node, &out, lhs);
+                    out << rhs.get<std::string>();
+                    return TypedValue(out.str());
+                }
+                const int R = getIntValue(rhs, node);
                 return TypedValue(L + R);
             }
             std::ostringstream out;
             out << lhs.get<std::string>();
-            printValue(&out, rhs);
+            printValue(node, &out, rhs);
             return TypedValue(out.str());
         }
         case MULTIPLY: {
             if(lhs.type.kind == BaseType::Int) {
-                const int L = getIntValue(lhs);
-                const int R = getIntValue(rhs);
+                const int L = getIntValue(lhs, node);
+                const int R = getIntValue(rhs, node);
                 return TypedValue(L * R);
             }
-            const int amt = getIntValue(rhs);
-            const std::string base = getStringValue(lhs);
+            const int amt = getIntValue(rhs, node);
+            const std::string base = getStringValue(lhs, node);
             std::ostringstream out;
             for (int i = 0; i < amt; ++i) out << base;
             return TypedValue(out.str());
@@ -439,19 +461,19 @@ TypedValue Executor::evalBinaryStringOp(BinaryOp op, const TypedValue &lhs, cons
         case NOT_EQUAL:
         case COMPARISON: {
             std::ostringstream left, right;
-            printValue(&left, lhs);
-            printValue(&right, rhs);
-            if(op == NOT_EQUAL) return TypedValue(left.str() != right.str());
-            else return TypedValue(left.str() == right.str());
+            printValue(node, &left, lhs);
+            printValue(node, &right, rhs);
+            bool eq = left.str() == right.str();
+            return TypedValue(op == COMPARISON ? eq : !eq);
         }
         default: break;
     }
-    error("Unsupported string binary op");
+    error(node, "Unsupported string binary op");
 }
 
-TypedValue Executor::evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs) {
-    const int L = getIntValue(lhs);
-    const int R = getIntValue(rhs);
+TypedValue Executor::evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs, const std::shared_ptr<ParsedASTNode> &node) {
+    const int L = getIntValue(lhs, node);
+    const int R = getIntValue(rhs, node);
 
     switch (op) {
         case MINUS:         return TypedValue(L - R);
@@ -467,12 +489,12 @@ TypedValue Executor::evalBinaryArithmeticOp(BinaryOp op, const TypedValue &lhs, 
         case GREATER_EQUAL: return TypedValue(L >= R);
         default: break;
     }
-    error("Unsupported arithmetic binary op");
+    error(node, "Unsupported arithmetic binary op");
 }
 
-TypedValue Executor::evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs) {
-    const bool L = getBoolValue(lhs);
-    const bool R = getBoolValue(rhs);
+TypedValue Executor::evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const TypedValue &rhs, const std::shared_ptr<ParsedASTNode> &node) {
+    const bool L = getBoolValue(lhs, node);
+    const bool R = getBoolValue(rhs, node);
 
     switch (op) {
         case COMPARISON:    return TypedValue(L == R);
@@ -481,5 +503,12 @@ TypedValue Executor::evalBinaryBoolOp(BinaryOp op, const TypedValue &lhs, const 
         case OR:            return TypedValue(L || R);
         default: break;
     }
-    error("Unsupported boolean binary op");
+    error(node, "Unsupported boolean binary op");
+}
+
+TypedValue Executor::evalTernaryOp(std::shared_ptr<ParsedASTNode> node, ENV env) {
+    TypedValue condition = evaluateExpression(node->children[0], env);
+    bool cond = getBoolValue(condition, node->children[0]);
+
+    return cond ? evaluateExpression(node->children[1], env) : evaluateExpression(node->children[2], env);
 }

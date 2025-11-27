@@ -3,23 +3,23 @@
 #include <iostream>
 
 void addOutstream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
-    auto printFunc = [executor](const std::vector<std::shared_ptr<TypedValue>> &args, bool newline) -> std::shared_ptr<TypedValue> {
-        for (const auto &arg : args) executor->printValue(&std::cout, *arg);
+    auto printFunc = [executor](const std::vector<std::shared_ptr<TypedValue>> &args, bool newline, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
+        for (const auto &arg : args) executor->printValue(callNode, &std::cout, *arg);
         if (newline) std::cout << std::endl;
         return std::make_shared<TypedValue>(0);
     };
 
     globalEnv->set("print", {std::make_shared<Function>(Function{
-        [printFunc](const std::vector<std::shared_ptr<TypedValue>> &args) { return printFunc(args, false); }
+        [printFunc](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) { return printFunc(args, false, callNode); }
     })});
     globalEnv->set("println", {std::make_shared<Function>(Function{
-        [printFunc](const std::vector<std::shared_ptr<TypedValue>> &args) { return printFunc(args, true); }
+        [printFunc](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) { return printFunc(args, true, callNode); }
     })});
     globalEnv->set("printf", {std::make_shared<Function>(Function{
-        [executor](const std::vector<std::shared_ptr<TypedValue>> &args) -> std::shared_ptr<TypedValue> {
+        [executor](const std::vector<std::shared_ptr<TypedValue>> &args, std::shared_ptr<ParsedASTNode> callNode) -> std::shared_ptr<TypedValue> {
             if (args.empty()) return std::make_shared<TypedValue>(0);
 
-            std::string format = executor->getStringValue(*args[0]);
+            std::string format = executor->getStringValue(*args[0], callNode);
             size_t argIndex = 1;
             size_t pos = 0;
 
@@ -30,7 +30,7 @@ void addOutstream(std::shared_ptr<Environment> globalEnv, Executor* executor) {
                 stream << before;
                 format = format.substr(pos + 2);
 
-                executor->printValue(&stream, *args[argIndex]);
+                executor->printValue(callNode, &stream, *args[argIndex]);
                 argIndex++;
                 pos = 0;
             }

@@ -9,43 +9,6 @@
 #include "lumper.hpp"
 #include "executor.hpp"
 
-std::string stringifyToken(const Token& token) {
-    static const std::unordered_map<Token::Type, std::string> tokenTypeMap = {
-        {Token::Type::SEMICOLON, "SEMICOLON"},
-        {Token::Type::COMMA, "COMMA"},
-        {Token::Type::EQUAL, "EQUAL"},
-        {Token::Type::END_OF_FILE, "END_OF_FILE"},
-        {Token::Type::NUMBER, "NUMBER"},
-        {Token::Type::IDENTIFIER, "IDENTIFIER"},
-        {Token::Type::KEYWORD, "KEYWORD"},
-        {Token::Type::PRIMITIVE, "PRIMITIVE"},
-        {Token::Type::PLUS, "PLUS"},
-        {Token::Type::MINUS, "MINUS"},
-        {Token::Type::MULTIPLY, "MULTIPLY"},
-        {Token::Type::DIVIDE, "DIVIDE"},
-        {Token::Type::MODULUS, "MODULUS"},
-        {Token::Type::NOT, "NOT"},
-        {Token::Type::LESS, "LESS"},
-        {Token::Type::GREATER, "GREATER"},
-        {Token::Type::AND, "AND"},
-        {Token::Type::OR, "OR"},
-        {Token::Type::BITWISE_AND, "BITWISE_AND"},
-        {Token::Type::BITWISE_OR, "BITWISE_OR"},
-        {Token::Type::BITWISE_XOR, "BITWISE_XOR"},
-        {Token::Type::BITWISE_NOT, "BITWISE_NOT"},
-        {Token::Type::QUESTION_MARK, "QUESTION_MARK"},
-        {Token::Type::COLON, "COLON"},
-        {Token::Type::LPAREN, "LPAREN"},
-        {Token::Type::RPAREN, "RPAREN"},
-        {Token::Type::LBRACE, "LBRACE"},
-        {Token::Type::RBRACE, "RBRACE"},
-        {Token::Type::LBRACKET, "LBRACKET"},
-        {Token::Type::RBRACKET, "RBRACKET"},
-    };
-    auto it = tokenTypeMap.find(token.type);
-    return it != tokenTypeMap.end() ? it->second : "<UNKNOWN>";
-}
-
 struct ParsedData {
     std::shared_ptr<ASTNode> ast;
     std::string lumpPath;
@@ -149,8 +112,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        Executor(decoded).run();
-        return 0;
+        return Executor(decoded).run().get<int>();
     }
 
     return 0;

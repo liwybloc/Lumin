@@ -7,6 +7,9 @@
 #include <cstdint>
 
 enum BinaryOp {
+    // special
+    TERNARY,
+
     // many compatible ops
     PLUS,
     MULTIPLY,
@@ -90,7 +93,7 @@ struct Token {
         BITWISE_XOR,
         BITWISE_NOT,
 
-        QUESTION_MARK,
+        QMARK,
         COLON,
 
         INCREMENT,
