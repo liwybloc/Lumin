@@ -237,10 +237,14 @@ KWMAP Parser::initKwMap() const {
 
                 p->expect(Token::Type::LBRACE, "Expected '{' after struct declaration", true);
                 while (p->peek().type != Token::Type::RBRACE && p->peek().type != Token::Type::END_OF_FILE) {
-                    if (p->match(Token::Type::PRIMITIVE) || p->match(Token::Type::IDENTIFIER))
-                        node->children.push_back(p->parseStatementPre(depth + 1, false));
-                    else
-                        break;
+                    if (p->match(Token::Type::PRIMITIVE) || p->match(Token::Type::IDENTIFIER)) {
+                        auto stmt = p->parseStatementPre(depth + 1, false);
+                        if(stmt->type != ASTNode::Type::PRIMITIVE_ASSIGNMENT) {
+                            p->error("Expected member declaration in struct");
+                        }
+                        stmt->children.erase(stmt->children.begin()); // remove signifying bool
+                        node->children.push_back(stmt);
+                    } else break;
                 }
                 p->expect(Token::Type::RBRACE, "Expected '}' after struct declaration", true);
                 p->expect(Token::Type::SEMICOLON, "Expected ';' after struct declaration", true);

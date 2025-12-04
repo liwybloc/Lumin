@@ -1,12 +1,12 @@
 import "outstream";
 
-struct Bob {
-};
-struct BobTheBuilder { };
+struct Position {
+    int x, y;
+}
 
 fin main() -> int {
-    Bob bob = new Bob{};
+    Position pos = new Position{10, 20};
 
-    printf("Bob is 30 ? no clue, here's bob tho {}\n", bob);
+    println(bob);
     return 0;
 }
